@@ -1,0 +1,59 @@
+[build-system]
+requires = [
+  "setuptools",
+  "setuptools_scm[toml]",
+]
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = "vadaltion"
+dynamic = ["version"]
+description = "Contains tools to download and compare numerical models with SDO/AIA, SDO/HMI, Hinode/EIS, and IRIS datasets with the aim of validating numerical models for use in MUSE data modeling."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE.md"}
+keywords = ["solar physics", "solar", "science", "NASA", "MUSE", "spectra", "lmsal", "modeling", "validation", "MHD"]
+authors = [
+  {email = "viggoh@gmail.com", name = "Viggo H. Hansteen"},
+  {email = "sbose925@gmail.com", name="Souvik Bose"}
+]
+classifiers = [
+  "Development Status :: 2 - pre Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  'sunpy>=6.1.0',
+  'numpy>=1.20.0',
+  'astropy>=7.0.1',
+  'matplotlib>=3.10.0',
+  'xarray=2024.1.1',
+  'scipy>=1.15.0',
+  'aiapy>=0.10.1',
+  'eispac>=0.98.1',
+  'git+https://gitlab.com/LMSAL_HUB/muse_hub/muse.git',
+  'git+https://gitlab.com/LMSAL_HUB/sims_hub/br_hub/br_py.git',
+  'git+https://github.com/ITA-Solar/helita.git@master',
+  'dateutil>=2.9.0.post0',
+]
+
+[project.urls]
+repository = "https://github.com/souvikita/muse_validation_pipeline.git"
+
+[tool.setuptools_scm]
+write_to = "museval/_version.py" # DO NOT CHECK INTO THE REPO ADD TO GITIGNORE
+
+[tool.setuptools]
+include-package-data = true
+platforms = ["any"]
+provides = ["museval"]
+license-files = ["LICENSE.md"]
