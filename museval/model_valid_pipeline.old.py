@@ -97,15 +97,94 @@ if __name__ == '__main__':
     # User input for the date of observation #
     date = input("Enter the date of observation (YYYY-MM-DD): ")
     date_obj = Time(date,format='isot',scale='utc') # astropy time object
+    # Extract the last two digits of the year
+    last_two_digits = str(date_obj.datetime.year)[-2:]
+    month_number = date_obj.datetime.month  # Extract the month number (e.g., 5 for May)
+    month_name = calendar.month_name[month_number]  # Convert to full month name
 
-    # Read or compute and save response function
-    aia_resp = get_response(date)
+    # Check if the response function for that year exists in your system. 
+    # We agreed to use the same response function for all observations in a given year.
+    response_pattern = os.path.join(os.environ['RESPONSE'], f'swapped_aia_resp_DN_*{last_two_digits}.zarr') # Just checks for the response function for the year
+    matching_files = glob.glob(response_pattern)# checks if any file in the above directory matches the pattern
+    # If the response function for that year exists, it will be used.   
+    # If not, it will create a new response function for that year.
+    if matching_files:
+        print(f"Response function(s) found for the year: {last_two_digits}")
+        response_file = matching_files[0] # because the glob returns a list while the read_response function takes a string. 
+        response_all = read_response(response_file, logT=vdem.logT,gain=np.ones((4))).compute() # simply read the response functions
+    else:
+        print(f"Creating a new AIA response function for the year: {last_two_digits}")
+        save_response = True
+        use_QS_bands = True
+        print(f"Response function date set to {parse_time(date).strftime('%d-%b-%Y')}")
+        aia_goes_lines = ['AIA 94', 'AIA 131', 'AIA 171', 'AIA 193', 
+                        'AIA 211', 'AIA 304','AIA 335', 
+                        'GOES 15 1-8', 'GOES 15 0.5-4']
+        # Channels (lines/bands) relevant for (in this case) MUSE QS validation
+        if use_QS_bands:
+            lines = aia_goes_lines[1:5]
+            bands = [int(s) for s in " ".join(lines).split("AIA ")[1:5]]
+        else:
+            print(" You should set use_QS_bands to true unless you know what you are doing!!!")
+            # sys.exit()
+        
+            #  Temperature limits, abundance, pressure, and pixel size
+        #  NB note that available abundance files depend on Chianti version!
+        units = 'DN'
+        tmax=7.6
+        tmin=4.4
+        tbin=0.1
+        abund = "sun_coronal_2021_chianti"
+        abund = "sun_photospheric_2011_caffau"
+        abund = "sun_photospheric_2021_asplund"
+        pres = 3e15
+        dx_pix=0.6
+        dy_pix=0.6
+        zarr_file = f'aia_resp_{units}_{parse_time(date).strftime("%y")}.zarr'
+        for line,band in zip(lines,bands):
+            print(f'*** Computing {units} response function for {line} date {parse_time(date).strftime("%b%Y")}')
+            ch = Channel(band*u.angstrom)
+            correction_table = get_correction_table("jsoc")
+            resp_band = ch.wavelength_response(obstime=parse_time(date),correction_table=correction_table)
+            eff_xr = create_eff_area_xarray(resp_band.value, ch.wavelength.value, [ch.channel.value])
+            line_list = create_resp_line_list(eff_xr, temin=10**tmin, abundance=abund, eDensity=3e10, num_slits=1)
+            line_list = line_list.sortby(line_list.resp_func)
+            line_list = line_list.sel(trans_index = line_list.trans_index[::-1][:350].data)  
+            ''' Important!! Viggo considers here only 350 lines.
+                this creates the resposne function. Note that now we provide pressure 
+                (it can also be an array) or not sum lines, but 
+                if you have many it becomes a huge array!
+            ''' 
+            resp_eff_dn = create_resp_func_ci(
+                line_list,
+                temp=10 ** np.arange(tmin, tmax, tbin),
+                pres=pres,
+                abundance=abund,
+                effective_area=eff_xr,
+                sum_lines=True,
+                gain=18,
+                units="1e-27 DN cm5 / s",
+                dx_pix = dx_pix, 
+                dy_pix = dy_pix,
+                )
+            if line == lines[0]:
+                response_all = resp_eff_dn
+            else:
+                response_all = xr.concat([response_all, resp_eff_dn], dim="band")
+            response_all["SG_resp"] = response_all.SG_resp.fillna(0)
+            response_all = response_all.compute()
+            response_all = response_all.drop_dims("line")
+        response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
+        response_all = response_all.compute()
+        zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
+        response_all.to_zarr(zarr_file) # Saved to the .zarr file
+
+    aia_resp = response_all.copy() # This is the response function to be used for the remaining of the year.
 
     vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
     vdem_cut = vdem_cut.compute()
     # vdem_cut
     muse_AIA = vdem_synthesis(vdem_cut.sum(dim=["vdop"]), aia_resp, sum_over=["logT"]) #Synthesis AIA observations using the response function and VDEM
-    muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
     # # print(muse_AIA)
     # # plt.figure(figsize=(10, 5))
     # muse_AIA.flux.sel(line='AIA 171').T.plot(cmap='inferno', norm=colors.PowerNorm(0.3))

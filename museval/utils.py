@@ -73,7 +73,8 @@ def get_response(date,
         for line,band in zip(lines,bands):
             print(f'*** Computing {units} response function for {line} date {obs_date.strftime("%b%Y")}')
             ch = Channel(band*u.angstrom)
-            resp_band = ch.wavelength_response(obstime=obs_date)
+            correction_table = get_correction_table("jsoc")    # Check what this does!
+            resp_band = ch.wavelength_response(obstime=obs_date, correction_table=correction_table)
             eff_xr = create_eff_area_xarray(resp_band.value, ch.wavelength.value, [ch.channel.value])
             line_list = create_resp_line_list(eff_xr, temin=10**tmin, abundance=abund, eDensity=3e10, num_slits=1)
             line_list = line_list.sortby(line_list.resp_func)
@@ -106,6 +107,8 @@ def get_response(date,
 #
     response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     response_all = response_all.assign_attrs(date = obs_date.strftime("%d-%b-%Y"))
+#    response_all = response_all.assign_attrs(abundance = abund) # Needed, or already in?
+    response
 #
 #response_all = response_all.swap_dims({"band":"line"})
     response_all = response_all.compute()
