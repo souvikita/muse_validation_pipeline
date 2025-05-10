@@ -121,3 +121,24 @@ def get_response(date,
     else:
         print(f"Response function not saved {zarr_file}")
     return response_all, obs_date
+
+def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
+    print(f"*** Work directory is {work_dir}")
+    os.chdir(work_dir)
+    
+    files = glob.glob(os.path.join(vdem_dir,'*'))
+    print(f'*** Loading {files[0]} into vdem')
+    vdem = xr.open_zarr(files[0]).compute()
+
+    # vdem_cut
+    vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
+    vdem_cut = vdem_cut.compute()
+    #Synthesis AIA observations using the response function and VDEM
+    muse_AIA = vdem_synthesis(vdem_cut.sum(dim=["vdop"]),
+                              aia_resp,
+                              sum_over=["logT"]) 
+    if swap_dims:
+       muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
+    return muse_AIA
+
+
