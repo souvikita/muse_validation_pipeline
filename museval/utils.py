@@ -129,9 +129,10 @@ def readFits(filename, ext=0):
   Just defining a simple readFits function without
   bothering about the complex header options of astropy fits.
   """
-    io = fits.open(filename, 'readonly',memmap=True)
-    #print('reading -> {0}'.format(filename))
-    dat = np.ascontiguousarray(io[ext].data, dtype='float32')
-    io.close()
-    return dat
+  io = fits.open(filename, 'readonly',memmap=True)
+  #print('reading -> {0}'.format(filename))
+  dat = np.ascontiguousarray(io[ext].data, dtype='float32')
+  io.close()
+  
+  return dat
 # **************************************************
