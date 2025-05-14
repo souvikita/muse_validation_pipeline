@@ -149,12 +149,24 @@ for date in obs_dates["date_begin_EIS"]:
     print('\n Reading saved AIA PSFs, deconvolving the downloaded full-disk AIA data and storing the cutouts')
     PSF_aia_team = np.load('/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/AIA_PSFs/aia_psfs_added.npz',allow_pickle=True)
 
+    # for aia_file in tqdm(range(len(files_AIA_full_disk)-1)):
+    #     aia_full_disk = sunpy.map.Map(files_AIA_full_disk[aia_file])
+    #     aia_full_disk_deconv = deconvolve(aia_full_disk, psf=PSF_aia_team[PSF_aia_team.files[aia_file]])##Assumes files are stored in the same sequence, i.e. 131, 171..
+    #     aia_cutout = aia_full_disk_deconv.submap(bottom_left,top_right=top_right)
+    #     wavelength_name = str(aia_full_disk.wavelength).split()[0]
+    #     aia_cutout.save(eis_data_path+"SDO_EIS_cutouts_"+date_begin_EIS+'/cutout_AIA_'+wavelength_name+'.fits')
+
     for aia_file in tqdm(range(len(files_AIA_full_disk)-1)):
         aia_full_disk = sunpy.map.Map(files_AIA_full_disk[aia_file])
-        aia_full_disk_deconv = deconvolve(aia_full_disk, psf=PSF_aia_team[PSF_aia_team.files[aia_file]])##Assumes files are stored in the same sequence, i.e. 131, 171..
-        aia_cutout = aia_full_disk_deconv.submap(bottom_left,top_right=top_right)
-        wavelength_name = str(aia_full_disk.wavelength).split()[0]
-        aia_cutout.save(eis_data_path+"SDO_EIS_cutouts_"+date_begin_EIS+'/cutout_AIA_'+wavelength_name+'.fits')
+        wavelength_name = str(aia_full_disk.wavelength.to(u.angstrom).value).split('.')[0]
+        cutout_path = os.path.join(obs_data_dir, f'cutout_AIA_{wavelength_name}.fits')
 
+        if os.path.exists(cutout_path):
+            print(f'*** Cutout for {wavelength_name} already exists. Skipping...')
+            continue
+        aia_full_disk_deconv = deconvolve(aia_full_disk, psf=PSF_aia_team[PSF_aia_team.files[aia_file]])
+        aia_cutout = aia_full_disk_deconv.submap(bottom_left, top_right=top_right)
+        aia_cutout.save(cutout_path)
+        print(f'*** Cutout for {wavelength_name} saved at {cutout_path}')
 
     print("\n *** Done!! Check the cutouts now!")
