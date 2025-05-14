@@ -202,7 +202,7 @@ if __name__ == '__main__':
     fig,ax = plt.subplots(ncols=1,nrows=2,figsize=(5,10),sharex=True)
     ax.ravel()
     aialine = ['AIA 131','AIA 171','AIA 193','AIA 211']
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    colors_plot = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
     num_bins=60 ## to be fixed
     for idx_line, line in enumerate(aialine):
         synth_aiadata = muse_AIA.flux.sel(line=line).to_numpy()
@@ -221,7 +221,7 @@ if __name__ == '__main__':
         ax[1].set_xscale('log')
         ax[1].set_ylabel('ECDF')
         ax[1].set_xlim([1,15000])
-        ax[1].axvline(x=np.mean(synth_aiadata.ravel()),color=colors[idx_line],lw=1,ls='--')
+        ax[1].axvline(x=np.mean(synth_aiadata.ravel()),color=colors_plot[idx_line],lw=1,ls='--')
         
     fig.suptitle(f'{code} simulation: {snapname} snap {snap:03d}',y=0.98)
     plt.tight_layout()
@@ -246,7 +246,7 @@ if __name__ == '__main__':
     obs_dates.add_index("date_begin_EIS")
     for date in obs_dates["date_begin_EIS"]:
         aialine = ['AIA 131','AIA 171','AIA 193','AIA 211']
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+        colors_plot = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
         num_bins=60 ## to be fixed
         date_begin_EIS = obs_dates.loc[date]["date_begin_EIS"]
         # muse_AIA = generate_response_and_synth_plots(date_begin_EIS, vdem, save=True) ## Now calling this function
@@ -327,8 +327,8 @@ if __name__ == '__main__':
                 combined = np.concatenate([data, bf.ravel()])
                 bins_new = np.linspace(combined.min(), combined.max(), num_bins)
                 ax[i//2][i%2].hist(data, bins=bins_new, label=f'AIA {Region}',cumulative=True, histtype='step',
-                    weights=np.ones(len(data)) / len(data),color=colors[i],lw=2)
-                ax[i//2][i%2].axvline(x=np.mean(data),color=colors[i],lw=1,ls='-',label=f'$\mu_{{\mathrm{{obs}}}}$: {np.mean(data):.2f} [DNs$^{-1}$]')
+                    weights=np.ones(len(data)) / len(data),color=colors_plot[i],lw=2)
+                ax[i//2][i%2].axvline(x=np.mean(data),color=colors_plot[i],lw=1,ls='-',label=f'$\mu_{{\mathrm{{obs}}}}$: {np.mean(data):.2f} [DNs$^{-1}$]')
                 # 
                 
                 # bins = np.linspace(bf.min(), bf.max(), num_bins)
@@ -355,7 +355,7 @@ if __name__ == '__main__':
             title = f"AIA {Region} {date} vs {code} {snapname} snap {snap:03d}"
             fig.suptitle(title,y=0.98)
             plt.tight_layout()
-            plt.show()
+            #plt.show()
             # save_hist = input("Do you want to save the histograms? (True/False): ")
             # Change the working directory to the cutouts data path and ensure directory exists
             os.chdir(cutouts_data_path)
@@ -628,7 +628,7 @@ if __name__ == '__main__':
             # if save_aia_fdsik == 'True':
             print('Saving the full disk AIA maps')
             fig.savefig(os.path.join(output_dir,f"{date}_AIA_fdisk.png"),dpi=300,bbox_inches='tight')             
-            plt.close(fig)
+            # plt.close(fig)
         # else:
             # print('AIA full disk maps not saved')
             # plt.close(fig)
