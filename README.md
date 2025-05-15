@@ -4,5 +4,7 @@ Also linked this repo with muse_science slack channel. Created a separate privat
 
 # Installation
 `git clone https://github.com/souvikita/muse_validation_pipeline.git`
-`> cd muse_validation_pipeline`
-`> pip install -e .`
+
+`cd muse_validation_pipeline`
+
+`pip install -e .`
