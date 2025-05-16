@@ -6,7 +6,7 @@ requires = [
 build-backend = 'setuptools.build_meta'
 
 [project]
-name = "vadaltion"
+name = "validation"
 dynamic = ["version"]
 description = "Contains tools to download and compare numerical models with SDO/AIA, SDO/HMI, Hinode/EIS, and IRIS datasets with the aim of validating numerical models for use in MUSE data modeling."
 readme = "README.md"
