@@ -112,7 +112,7 @@ if __name__ == "__main__":
                     fitter=LevMarLSQFitter(),
                     scheduler=client,
                 )
-            client.close()
+            # client.close()
             net_flux = (
                 np.sqrt(2 * np.pi)
                 * (iris_model_fit.amplitude_0 + iris_model_fit.amplitude_1)
