@@ -79,9 +79,11 @@ def get_response(date = None,
     import astropy.constants as const
     import astropy.units as u
     from aiapy.response import Channel
+    from muse.utils.utils import read_response
     from muse.instr.utils import create_eff_area_xarray
     from muse.instr.utils import chianti_gofnt_linelist
     from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
+    from muse.synthesis.synthesis import transform_resp_units
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -115,9 +117,20 @@ def get_response(date = None,
             ch = Channel(band*u.angstrom)
             if obs_date is None:
                 print(f'*** Computing {units} response function for {ch.channel.to_string()}')
-                response = ch.wavelength_response() * ch.plate_scale
+                try:
+                    response = ch.wavelength_response() * ch.plate_scale
+                except:
+                    print('*** Warning: correction table taken from local SSW installation')
+                    response = ch.wavelength_response(correction_table = "SSW") * ch.plate_scale
             else:
-                print(f'*** Computing {units} response function for {ch.channel.to_string()} date {obs_date.strftime("%b%Y")}')
+                print(f'*** Computing {units} response function for {ch.channel.to_string()}'
+                       ' date {obs_date.strftime("%b%Y")}')
+                try:
+                    response = ch.wavelength_response(obstime = obs_date) * ch.plate_scale
+                except:
+                    print('*** Warning: correction table taken from local SSW installation')
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = "SSW") \
+                        * ch.plate_scale
                 response = ch.wavelength_response(obstime = obs_date) * ch.plate_scale
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars('wavelength')
@@ -153,7 +166,7 @@ def get_response(date = None,
                 response_all = xr.concat([response_all, resp_dn], dim="band")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
         response_all = response_all.compute()
-        save_response = True
+#        save_response = True
 #
 #    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     if obs_date is None:
