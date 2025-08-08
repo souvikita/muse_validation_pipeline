@@ -1,3 +1,5 @@
+import os
+
 def find_response(obs_date, 
                   resp_dir = os.environ['RESPONSE'], 
                   delta_month = 12,
@@ -72,6 +74,14 @@ def get_response(date = None,
     units: str, optional, response function intensity units, default DN.
     verbose: bool, optional, be verbose, default True
     '''
+    import numpy as np
+    import xarray as xr
+    import astropy.constants as const
+    import astropy.units as u
+    from aiapy.response import Channel
+    from muse.instr.utils import create_eff_area_xarray
+    from muse.instr.utils import chianti_gofnt_linelist
+    from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -88,7 +98,7 @@ def get_response(date = None,
 #
     zarr_file,obs_date = find_response(date, units = units)
     if zarr_file is not None:
-        print(f'*** Temporary(incomplete) {zarr_file} already exists! Reading...')
+        print(f'*** {zarr_file} already exists! Reading...')
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
         response_all = read_response(zarr_file).compute()

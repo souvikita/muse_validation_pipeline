@@ -10,7 +10,7 @@ name = "validation"
 dynamic = ["version"]
 description = "Contains tools to download and compare numerical models with SDO/AIA, SDO/HMI, Hinode/EIS, and IRIS datasets with the aim of validating numerical models for use in MUSE data modeling."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {file = "LICENSE.md"}
 keywords = ["solar physics", "solar", "science", "NASA", "MUSE", "spectra", "lmsal", "modeling", "validation", "MHD"]
 authors = [
@@ -34,14 +34,13 @@ classifiers = [
 dependencies = [
   'sunpy>=6.1.0',
   'numpy>=1.20.0',
-  'astropy>=7.0.1',
+  'astropy>=6.0.0',
   'matplotlib>=3.10.0',
   'xarray==2024.1.1',
   'scipy>=1.15.0',
   'aiapy>=0.10.1',
   'eispac>=0.98.1',
   'br_py @ git+https://gitlab.com/LMSAL_HUB/sims_hub/br_hub/br_py.git',
-  'helita @ git+https://github.com/ITA-Solar/helita.git@master',
   'python-dateutil>=2.9.0',
 ]
 
