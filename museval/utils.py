@@ -97,6 +97,7 @@ def get_response(date = None,
     from muse.instr.utils import create_eff_area_xarray
     from muse.instr.utils import chianti_gofnt_linelist
     from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
+    from muse.synthesis.synthesis import transform_resp_units
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -194,7 +195,7 @@ def get_response(date = None,
                 response_all = xr.concat([response_all, resp_dn], dim="band")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
         response_all = response_all.compute()
-        save_response = True
+#        save_response = True
 #
 #    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     if obs_date is None:
