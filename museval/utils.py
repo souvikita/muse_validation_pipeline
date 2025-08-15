@@ -250,7 +250,7 @@ def readFits(filename, ext=0):
   return dat
 # **************************************************
 
-def save_eis_iris_dates(urls, output_file):
+def save_eis_iris_dates(urls, output_file, alternate_only=False):
     """
     Downloads JSON data from multiple LMSAL HEK URLs,
     extracts start/stop times, and saves them in:
@@ -283,7 +283,9 @@ def save_eis_iris_dates(urls, output_file):
                 start_fmt = start_time.replace(" ", "T")
                 stop_fmt = stop_time.replace(" ", "T")
                 all_lines.append(f"{start_fmt} - {stop_fmt}        ''")
-
+    # alternate_only= True
+    if alternate_only:
+        all_lines = all_lines[::2]
     # Save to file
     with open(output_file, "w") as f:
         for line in all_lines:
