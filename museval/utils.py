@@ -250,3 +250,46 @@ def readFits(filename, ext=0):
   return dat
 # **************************************************
 
+def save_eis_iris_dates(urls, output_file):
+    """
+    Downloads JSON data from multiple LMSAL HEK URLs,
+    extracts start/stop times, and saves them in:
+    YYYY-MM-DDTHH:MM:SS - YYYY-MM-DDTHH:MM:SS        ''
+    in a text file.
+    Parameters
+    ----------
+    urls : list of str
+        List of JSON URLs to fetch.
+    output_file : str
+        Path to output text file.
+    """
+    import requests
+    all_lines = []
+
+    for url in urls:
+        print(f"Fetching: {url}")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            print(f"Failed to fetch {url}: {e}")
+            continue
+
+        for event in data.get("Events", []):
+            start_time = event.get("startTime")
+            stop_time = event.get("stopTime")
+            if start_time and stop_time:
+                start_fmt = start_time.replace(" ", "T")
+                stop_fmt = stop_time.replace(" ", "T")
+                all_lines.append(f"{start_fmt} - {stop_fmt}        ''")
+
+    # Save to file
+    with open(output_file, "w") as f:
+        for line in all_lines:
+            f.write(line + "\n")
+
+    print(f"Saved {len(all_lines)} date ranges to {output_file}")
+
+
+
