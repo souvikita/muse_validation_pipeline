@@ -297,6 +297,7 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
         all_lines = all_lines[::2]
     # Save to file
     with open(output_file, "w") as f:
+        f.write("date_begin_EIS  -  date_end_EIS                   Comment\n")
         for line in all_lines:
             f.write(line + "\n")
 
