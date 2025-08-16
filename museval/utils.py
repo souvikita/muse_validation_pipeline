@@ -264,7 +264,8 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
         Path to output text file.
     """
     import requests
-    all_lines = []
+    from datetime import datetime
+    all_lines = set()
 
     for url in urls:
         print(f"Fetching: {url}")
@@ -272,17 +273,25 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
             response = requests.get(url)
             response.raise_for_status()
             data = response.json()
+            print(f"Number of events in JSON: {len(data.get('Events', []))}")
         except Exception as e:
             print(f"Failed to fetch {url}: {e}")
             continue
 
         for event in data.get("Events", []):
+            instruments = event.get("instrument", [])
+            if "IRIS" not in instruments:
+                continue
             start_time = event.get("startTime")
             stop_time = event.get("stopTime")
             if start_time and stop_time:
                 start_fmt = start_time.replace(" ", "T")
                 stop_fmt = stop_time.replace(" ", "T")
-                all_lines.append(f"{start_fmt} - {stop_fmt}        ''")
+                all_lines.add(f"{start_fmt} - {stop_fmt}        ''")
+    # Sort by start date
+    all_lines = list(all_lines)
+    all_lines = sorted(list(all_lines), key=lambda line: datetime.strptime(line.split(" - ")[0], "%Y-%m-%dT%H:%M:%S"))
+
     # alternate_only= True
     if alternate_only:
         all_lines = all_lines[::2]
