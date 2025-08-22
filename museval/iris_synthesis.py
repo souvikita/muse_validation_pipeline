@@ -1,0 +1,343 @@
+import os
+import numpy as np
+import br_py.tools as btr
+from muse.synthesis.synthesis import vdem_synthesis
+
+def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
+   """
+   Given short simulation name 'sim' cd to its directory and return snapname and workdir name.
+
+   If workdir or simulation not found, instructions for fixing code given.
+
+   Parameters
+   ----------
+   sim   : `str`
+      Short memnonic name for simulation.
+   work  : `str`
+      Root directory for simulations, default is viggoh's workdir in Oslo.
+
+   Returns
+   -------
+   snapname : `str`
+      Full snapname of simulation.
+   simdir : `str`
+      Full directory specification of simulation.
+   """
+   from astropy.io import ascii
+   from tabulate import tabulate
+   Simulations = """
+   'mnemonic'    'snapname'                         'simdir'
+   'en'          'en024031_emer3.0_str'             'en024031_emer3.0/str'
+   'qs'          'qs072100'                         'qs072100'
+   'qsd2'        'qs072100_d2'                      'qs072100_d2'
+   'pl72'        'pl072100'                         'pl072100'
+   'pl24'        'pl024031'                         'pl024031'
+   'pl24hion'    'pl024031'                         'pl024031_hion'
+   """
+   Simulations_Table = ascii.read(Simulations)
+   if not os.path.exists(work):
+       print(f"*** Warning: directory {work} not found!!! Give an available workdir")
+       print("Available sims are:")
+       hdr = ['mnemonic','snapname','simdir']
+       print(tabulate(Simulations_Table, headers = hdr, tablefmt='grid'))
+       return -1,
+   Simulations_Table.add_index('mnemonic')
+   workdir = os.path.join(work,Simulations_Table.loc[sim]['simdir'])
+   os.chdir(workdir)        
+   print(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
+   return Simulations_Table.loc[sim]['snapname'],workdir
+
+def make_iris_vdem(simulation, snap,
+                   save = True, 
+                   save_bz = True, z0 = -0.15, # height at which to save Bz [Mm] 
+                   compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
+                   code = 'Bifrost', 
+                   minltg = 4.2, maxltg = 5.5, dltg = 0.1,
+                   minuz = -200, maxuz = 200, duz = 10.,
+                   ):
+    ntg = int((maxltg-minltg)/dltg) + 1; print(f'Number of temperature bins {ntg:03d}')
+    lgtaxis = np.linspace(minltg,maxltg,ntg)
+    nuz = int((maxuz-minuz)/duz)+1 ; print(f'Number of velocity bins {nuz:03d}')
+    syn_dopaxis = np.linspace(minuz, maxuz, nuz)
+    snapname,workdir = pick_sim(simulation)
+    vdem_dir = os.path.join(workdir,"vdem")
+    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}.zarr")
+    ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
+    if compute:
+        vdem = ddbtr.from_hel2vdem(snap, syn_dopaxis, lgtaxis, axis=2, xyrotation=True)
+    else:
+        save = False
+    if save:
+        vdem.to_zarr(zarr_file)
+        print(f"Saved {zarr_file}")
+    else:
+        vdem = xr.open_zarr(zarr_file)
+    if save_bz:
+        ddbtr.set_snap(snap)
+        bz = ddbtr.get_var('bz')
+        iz0 = np.argmin(np.abs(ddbtr.z - z0))
+        bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+        np.save(bz_file, bz[:,:,iz0], allow_pickle = True)
+        print(f"Saved {bz_file}")
+    return vdem
+
+def make_line_response(ionstr = ["si_4"],
+                       wvlr = np.array([1393.75,1393.76]),
+                       abundance   = "sun_coronal_2021_chianti",
+                       lgtgmin     = 4.0, lgtgmax     = 6.0, lgtgstep    = 0.1,                  # in log10
+                       uzmax       = 200.0, uzmin       = -200.0, uzstep      = 5.0,             # km/s
+                       instr_width = 0.0, # km/s
+                       ):
+    # Make sure the wavelength range is small to select a single line 
+    # The VDEM could be expanded to include density dependence (and the response function)
+    logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
+    pressure = xr.DataArray(np.array([3e15]), dims= 'pressure')
+    vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
+    # We assume no instrumental broadening. 
+    effective_area_unity = create_eff_area_xarray(np.ones(2), [1393.,1394.5], [wvlr[0]])
+    # finds in Chiantypy the line list with the properties listed above
+    line_list = chianti_gofnt_linelist(
+        temperature = 10**logT,
+        pressure=pressure,
+        abundance = abundance,
+        wavelength_range = wvlr,
+        ionList=ionstr,
+        minimum_abundance=1e5,
+    )
+    # Generates the response function
+    wvlmin=line_list.wvl.min().values - 0.9
+    wvlmax=line_list.wvl.max().values + 0.9
+    n = line_list.sizes['trans_index']
+
+    resp = create_resp_func(
+        line_list,
+        vdop = vdop,
+        instr_width=instr_width,  # ??? 2.4 pix -> ~13.5mA
+        effective_area=effective_area_unity.eff_area,
+        wvlr=[wvlmin, wvlmax],
+        num_lines_keep=n,
+    )
+    return resp
+
+def transform_iris_resp_units(
+    resp_input: xr.Dataset,
+    iris_file,
+    line,
+    new_units: str = "1e-27 cm5 DN / s",
+) -> xr.Dataset:
+    """
+    Convert intensity units of a response function.
+
+    It works from erg -> ph (erg*lambda/(h*c)), ph -> erg (or any other energy flux units).
+    It allows also to go from sr or arsec to pixel size.
+
+    Parameters
+    ----------
+    resp_input : `xarray.Dataset`
+        Response function.
+    iris_file : `str`
+        IRIS fits file name, method uses parameters in fits header to set pixel size, effective area, etc.
+    line      : `str` line name in IRIS fits file, e.g. 'Si IV 1394'
+    new_units : `str`
+        New units, it uses the format of str(astropy.units.XXX), by default "1e-27 cm5 DN / s"
+
+    Returns
+    -------
+    resp_input : `xarray.Dataset`
+        A new Dataset of the response function in new_units.
+    """
+    from weno4 import weno4
+    from muse.utils.utils import add_history
+    resp = resp_input.copy(deep=True)
+    if "line" not in resp.dims:
+        resp = resp.swap_dims({"channel": "line"})
+    if "units" not in resp.SG_resp.attrs:
+        # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr 
+        resp.SG_resp.attrs["units"] = str(1.e-27*u.cm**5*u.ergu / (u.angstrom*u.s*u.sr))
+
+    wvlns, lamwin, rcfs = iris_radiometric(iris_file)
+
+    units_conv = weno4(resp.wavelength,wvlns[line][lamwin[line][0]:lamwin[line][1]],rcfs[line] )
+
+    if np.size(units_conv) > 1:
+        units_ds = xr.DataArray(data=units_conv, dims=resp.wavelength.dims, coords={"wavelength": resp.wavelength})
+        resp["SG_resp"] = resp.SG_resp / units_ds
+    else:
+        resp["SG_resp"] = resp.SG_resp.isel(line=0) / units_conv
+
+    resp.SG_resp.attrs["units"] = new_units
+
+    add_history(resp, locals(), transform_iris_resp_units)
+    return resp
+
+def iris_radiometric(iris_file,
+                     set_exptime = False):
+        from astropy.io import fits
+        from weno4 import weno4
+        hdr = fits.getheader(iris_file)
+        if 'STARTOBS' not in hdr:
+                begin=dt.datetime.strptime(hdr['DATE_OBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        else:
+                begin=dt.datetime.strptime(hdr['STARTOBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        if 'ENDOBS' not in hdr:
+                end=dt.datetime.strptime(hdr['DATE_END'], '%Y-%m-%dT%H:%M:%S.%f')
+        else:
+                end=dt.datetime.strptime(hdr['ENDOBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        midtime=dt.datetime.strftime((begin+((end-begin)/2)), '%Y-%m-%dT%H:%M:%S.%fZ')
+
+        response=(igr.iris_get_response(midtime, quiet=False))[0]
+
+        if response['NAME_SG'][0]==b'FUV' and response['NAME_SG'][1]==b'NUV':
+                FUVind=0
+                NUVind=1
+        elif response['NAME_SG'][1]==b'FUV' and response['NAME_SG'][0]==b'NUV':
+                FUVind=1
+                NUVind=0
+        else:
+                print("[NAME_SG]="+str(response['NAME_SG']))
+                raise RuntimeError("FUV and NUV cannot be found automatically. Please check ['NAME_SG'] from irisresponse above.")
+
+        indices={hdr[name]: ind+1 for ind, name in enumerate(hdr['TDESC*'])}
+
+        if indices=={}:
+                #Full disc mosaic
+                if hdr['CRVAL3'] > 2000:
+                        indices={'fdNUV':0}
+                else:
+                        indices={'fdFUV':0}
+        ###################
+        # Wavelength axes #
+        ###################
+        FUV=np.where(response['AREA_SG'][FUVind]>0)[0]
+        FUVcutoff=np.where((FUV[1:]-FUV[:-1])>1)[0][0]+1
+
+        FUV1=FUV[:FUVcutoff]
+        FUV1=response['LAMBDA'][FUV1]*10
+
+        FUV2=FUV[FUVcutoff:]
+        FUV2=response['LAMBDA'][FUV2]*10
+
+        NUV=(response['LAMBDA'][response['AREA_SG'][NUVind]>0])*10
+
+        #################
+        # Photon Energy #
+        #################
+        #Lambda is in A. 1e7 ergs = 1 Joule
+        h=6.62607004e-34
+        c=3e8
+        eFUV1=1e7*h*c/(FUV1*1e-10)
+        eFUV2=1e7*h*c/(FUV2*1e-10)
+        eNUV=1e7*h*c/(NUV*1e-10)
+
+        ##################
+        # Effective Area #
+        ##################
+        aFUV1=np.trim_zeros(response['AREA_SG'][FUVind][FUV[:FUVcutoff]])
+        aFUV2=np.trim_zeros(response['AREA_SG'][FUVind][FUV[FUVcutoff:]])
+        aNUV=np.trim_zeros(response['AREA_SG'][NUVind])
+
+        del FUV
+
+        ###########
+        # DN2PHOT #
+        ###########
+        d2pFUV=response['DN2PHOT_SG'][FUVind]
+        d2pNUV=response['DN2PHOT_SG'][NUVind]
+
+        ###############
+        #Exposure Time#
+        ###############
+        if set_exptime:
+                if 'EXPTIMEN' in hdr:
+                        tnuv=hdr['EXPTIMEN']
+                else:
+                        tnuv=hdr['EXPTIME']
+                if 'EXPTIMEF' in hdr:
+                        tfuv=hdr['EXPTIMEF']
+                else:
+                        tfuv=hdr['EXPTIME']
+        else:
+                tfuv = 1.
+                tnuv = 1.
+
+        ############
+        #Slit Width#
+        ############
+        wslit=np.pi/(180*3600*3)
+
+        ##################################
+        #Spectral Pixel Width [angstroms]#
+        ##################################
+        # ...and...
+        ##############################
+        #Spatial Pixel Size [radians]#
+        ##############################
+        #ITN26 is a little cryptic about this, but I swear this is right
+        for key in indices:
+                ehdr = fits.getheader(iris_file, ext = int(indices[key])) 
+                if indices[key] == 1:
+                        pixl = {key: ehdr['CDELT1']}
+                        pixxy = {key: ehdr['CDELT2']*np.pi/(180*3600)}
+                else:
+                        pixl[key] = ehdr['CDELT1']
+                        pixxy[key] = ehdr['CDELT2']*np.pi/(180*3600)
+
+        #############
+        # Constants #
+        #############
+        const={}
+        for key in indices:
+                if key=='fdFUV':
+                        const[key]=d2pFUV/(pixxy[key]*pixl[key]*tfuv*wslit)
+                elif key=='fdNUV':
+                        const[key]=d2pNUV/(pixxy[key]*pixl[key]*tnuv*wslit)
+                elif 'FUV' in hdr['TDET'+str(indices[key])]:
+                        const[key]=d2pFUV/(pixxy[key]*pixl[key]*tfuv*wslit)
+                else:
+                        const[key]=d2pNUV/(pixxy[key]*pixl[key]*tnuv*wslit)
+
+        ###########################################################
+        # Wavelength Trimming and Radiometric Calibration Factors #
+        ###########################################################    
+        lamwin={} #LAMbda WINdow
+        wvlns={}
+        rcfs={} #Radiometric Calibration FactorS
+        for key in indices:
+                ehdr = fits.getheader(iris_file, ext = int(indices[key])) 
+                if key=='fdFUV':
+                        wvlns[key]=(np.arange(0, ehdr['NAXIS3'])-ehdr['CRPIX3']+1)*ehdr['CDELT3']+ehdr['CRVAL3']
+                        lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
+
+                elif key=='fdNUV':
+                        wvlns[key]=(np.arange(0, ehdr['NAXIS3'])-ehdr['CRPIX3']+1)*ehdr['CDELT3']+ehdr['CRVAL3']
+                        lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
+
+                elif hdr['TDET'+str(indices[key])]=='FUV1':
+                        wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
+                        lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
+
+                elif hdr['TDET'+str(indices[key])]=='FUV2':
+                        wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
+                        lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV2[0])&(wvlns[key]<FUV2[-1])]
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV2, eFUV2/aFUV2)*const[key]
+
+                elif hdr['TDET'+str(indices[key])]=='NUV':
+                        wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
+                        lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
+
+                else:
+                        raise ValueError("You have detectors that are not FUV1, FUV2, or NUV in your fits file.")
+
+        for i in list(rcfs.keys()):
+                rcfs[i]=rcfs[i].astype(np.float32)
+
+        return wvlns, lamwin, rcfs
