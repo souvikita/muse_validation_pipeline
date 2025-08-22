@@ -1,7 +1,9 @@
 import os
 import numpy as np
+import xarray as xr
 import br_py.tools as btr
 from muse.synthesis.synthesis import vdem_synthesis
+import datetime as dt
 
 def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
    """
@@ -341,3 +343,61 @@ def iris_radiometric(iris_file,
                 rcfs[i]=rcfs[i].astype(np.float32)
 
         return wvlns, lamwin, rcfs
+
+def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H:%M:%S.%fZ'), iris_file = None):
+    """
+    Returns iris effective area for given wavelength region and date.
+
+    If IRIS fits file name given, date is set to observation time found in file header.
+
+    Parameters
+    ----------
+    wvl : `numpy.ndarray` 
+        Wavelengths at which effective area is returned (assumed given in AA).
+    date : `str` 
+        Effective area date desired. Default is 'now'.
+    iris_file : `str`
+        Name of IRIS data file.
+
+    Returns
+    -------
+    eff_area : `numpy.ndarray`
+        Effective area for given wavelengths and date.
+    """
+    from irispreppy.radcal import iris_get_response as igr
+    from weno4 import weno4
+    from astropy.io import ascii
+    if iris_file is not None:
+        hdr = fits.getheader(iris_file)
+        if 'STARTOBS' not in hdr:
+                begin=dt.datetime.strptime(hdr['DATE_OBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        else:
+                begin=dt.datetime.strptime(hdr['STARTOBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        if 'ENDOBS' not in hdr:
+                end=dt.datetime.strptime(hdr['DATE_END'], '%Y-%m-%dT%H:%M:%S.%f')
+        else:
+                end=dt.datetime.strptime(hdr['ENDOBS'], '%Y-%m-%dT%H:%M:%S.%f')
+        date=dt.datetime.strftime((begin+((end-begin)/2)), '%Y-%m-%dT%H:%M:%S.%fZ')
+        
+    response=(igr.iris_get_response(date, quiet=False))[0]
+    if response['NAME_SG'][0]==b'FUV' and response['NAME_SG'][1]==b'NUV':
+        FUVind=0
+        NUVind=1
+    elif response['NAME_SG'][1]==b'FUV' and response['NAME_SG'][0]==b'NUV':
+        FUVind=1
+        NUVind=0
+    else:
+        print("[NAME_SG]="+str(response['NAME_SG']))
+        raise RuntimeError("FUV and NUV cannot be found automatically. Please check ['NAME_SG'] from irisresponse above.")
+    
+    lam = response['LAMBDA']*u.nm
+    lam = lam.to(u.AA).value
+    if wvl[0] > 2000.:
+        ind = NUVind
+    else:
+        ind = FUVind
+    area = response['AREA_SG'][ind]
+    eff_area = weno4(wvl, lam, area)
+    
+    return eff_area
+
