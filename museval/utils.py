@@ -166,7 +166,7 @@ def get_response(date = None,
                 response_all = xr.concat([response_all, resp_dn], dim="band")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
         response_all = response_all.compute()
-#        save_response = True
+        save_response = True
 #
 #    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     if obs_date is None:
@@ -182,8 +182,11 @@ def get_response(date = None,
         zarr_file = f'aia_resp_{units}_{obs_date.strftime("%b%y")}.zarr'
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
-        response_all.to_zarr(zarr_file)
-        print(f"Saved response to {zarr_file}  ")
+        try:
+            response_all.to_zarr(zarr_file, mode = "w")
+            print(f"Saved response to {zarr_file}  ")
+        except:
+            print(f"*** Error!! Could not write {zarr_file}")
     return response_all
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
