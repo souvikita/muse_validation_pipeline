@@ -99,6 +99,7 @@ def get_response(date = None,
     from muse.instr.utils import chianti_gofnt_linelist
     from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
     from muse.synthesis.synthesis import transform_resp_units
+    from muse.instr.utils import convert_resp2muse_ciresp
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -246,6 +247,8 @@ def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
 # **************************************************
 
 def readFits(filename, ext=0):
+  from astropy.io import fits
+  import numpy as np
   """
   Just defining a simple readFits function without
   bothering about the complex header options of astropy fits.
