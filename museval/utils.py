@@ -216,10 +216,12 @@ def get_response(date = None,
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
         try:
-            response_all.to_zarr(zarr_file, mode = "w")
-            print(f"Saved response to {zarr_file}  ")
+            response_all.to_zarr(f'{zarr_file}.zarr', mode = "w")
+            print(f"Saved response to {f'{zarr_file}.zarr'}")
         except:
-            print(f"*** Error!! Could not write {zarr_file}")
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
