@@ -132,6 +132,7 @@ def get_response(date = None,
         need_new_response = True
     if need_new_response:
         logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
+        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
         print(f"*** Constructing line list")
         line_list = chianti_gofnt_linelist(temperature = 10**logT,
@@ -179,7 +180,7 @@ def get_response(date = None,
             n = line_list_sort_c.sizes['trans_index']
             resp = create_resp_func(
                 line_list_sort_c,
-            #    vdop=vdop,
+                vdop=vdop,
                 instr_width=0,  
                 effective_area=eff_xr.eff_area,
                 wvlr=[80, 800],
