@@ -55,6 +55,7 @@ def get_response(date = None,
                  save_response = False,
                  units = 'DN',
                  lgtgmax=7.0,lgtgmin=4.4, lgtgstep=0.1,
+                 uzmax = 200., uzmin = -200., uzstep = 50.,
                  abund = "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
@@ -130,6 +131,7 @@ def get_response(date = None,
         need_new_response = True
     if need_new_response:
         logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
+        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
         print(f"*** Constructing line list")
         line_list = chianti_gofnt_linelist(temperature = 10**logT,
@@ -177,7 +179,7 @@ def get_response(date = None,
             n = line_list_sort_c.sizes['trans_index']
             resp = create_resp_func(
                 line_list_sort_c,
-            #    vdop=vdop,
+                vdop=vdop,
                 instr_width=0,  
                 effective_area=eff_xr.eff_area,
                 wvlr=[80, 800],
@@ -188,14 +190,15 @@ def get_response(date = None,
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
                                            )
+            ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
             if band == bands[0]:
-                response_all = resp_dn
+                response_all = ci_resp
             else:
-                response_all = xr.concat([response_all, resp_dn], dim="band")
+                response_all = xr.concat([response_all, ci_resp], dim="band")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
         response_all = response_all.compute()
-#        save_response = True
+        save_response = True
 #
 #    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     if obs_date is None:
@@ -211,8 +214,13 @@ def get_response(date = None,
         zarr_file = f'aia_resp_{units}_{obs_date.strftime("%b%y")}.zarr'
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
-        response_all.to_zarr(zarr_file, mode='w')
-        print(f"Saved response to {zarr_file}  ")
+        try:
+            response_all.to_zarr(f'{zarr_file}.zarr', mode = "w")
+            print(f"Saved response to {f'{zarr_file}.zarr'}")
+        except:
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
