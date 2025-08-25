@@ -51,6 +51,7 @@ def find_response(obs_date,
                 zarr_file = resp_files[iresp]
     return zarr_file, obs_date
 
+
 def get_response(date = None, 
                  save_response = False,
                  units = 'DN',
@@ -188,11 +189,12 @@ def get_response(date = None,
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
                                            )
+            ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
             if band == bands[0]:
-                response_all = resp_dn
+                response_all = ci_resp
             else:
-                response_all = xr.concat([response_all, resp_dn], dim="band")
+                response_all = xr.concat([response_all, ci_resp], dim="band")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
         response_all = response_all.compute()
         save_response = True
