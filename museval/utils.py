@@ -216,15 +216,19 @@ def get_response(date = None,
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
         try:
-            response_all.to_zarr(f'{zarr_file}.zarr', mode = "w")
-            print(f"Saved response to {f'{zarr_file}.zarr'}")
+            response_all.to_zarr(f'{zarr_file}', mode = "w")
+            print(f"Saved response to {f'{zarr_file}'}")
         except:
-            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
             response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
             print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
+    import xarray as xr
+    from muse.synthesis.synthesis import vdem_synthesis
+    import os
+    import glob
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
