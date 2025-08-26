@@ -51,7 +51,6 @@ def find_response(obs_date,
                 zarr_file = resp_files[iresp]
     return zarr_file, obs_date
 
-
 def get_response(date = None, 
                  save_response = False,
                  units = 'DN',
@@ -100,6 +99,7 @@ def get_response(date = None,
     from muse.instr.utils import chianti_gofnt_linelist
     from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
     from muse.synthesis.synthesis import transform_resp_units
+    from muse.instr.utils import convert_resp2muse_ciresp
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -216,15 +216,19 @@ def get_response(date = None,
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
         try:
-            response_all.to_zarr(f'{zarr_file}.zarr', mode = "w")
-            print(f"Saved response to {f'{zarr_file}.zarr'}")
+            response_all.to_zarr(f'{zarr_file}', mode = "w")
+            print(f"Saved response to {f'{zarr_file}'}")
         except:
-            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
             response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
             print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
+    import xarray as xr
+    from muse.synthesis.synthesis import vdem_synthesis
+    import os
+    import glob
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
@@ -247,6 +251,8 @@ def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
 # **************************************************
 
 def readFits(filename, ext=0):
+  from astropy.io import fits
+  import numpy as np
   """
   Just defining a simple readFits function without
   bothering about the complex header options of astropy fits.
@@ -258,4 +264,59 @@ def readFits(filename, ext=0):
   
   return dat
 # **************************************************
+
+def save_eis_iris_dates(urls, output_file, alternate_only=False):
+    """
+    Downloads JSON data from multiple LMSAL HEK URLs,
+    extracts start/stop times, and saves them in:
+    YYYY-MM-DDTHH:MM:SS - YYYY-MM-DDTHH:MM:SS        ''
+    in a text file.
+    Parameters
+    ----------
+    urls : list of str
+        List of JSON URLs to fetch.
+    output_file : str
+        Path to output text file.
+    """
+    import requests
+    from datetime import datetime
+    all_lines = set()
+
+    for url in urls:
+        print(f"Fetching: {url}")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            print(f"Number of events in JSON: {len(data.get('Events', []))}")
+        except Exception as e:
+            print(f"Failed to fetch {url}: {e}")
+            continue
+
+        for event in data.get("Events", []):
+            instruments = event.get("instrument", [])
+            if "IRIS" not in instruments:
+                continue
+            start_time = event.get("startTime")
+            stop_time = event.get("stopTime")
+            if start_time and stop_time:
+                start_fmt = start_time.replace(" ", "T")
+                stop_fmt = stop_time.replace(" ", "T")
+                all_lines.add(f"{start_fmt} - {stop_fmt}        ''")
+    # Sort by start date
+    all_lines = list(all_lines)
+    all_lines = sorted(list(all_lines), key=lambda line: datetime.strptime(line.split(" - ")[0], "%Y-%m-%dT%H:%M:%S"))
+
+    # alternate_only= True
+    if alternate_only:
+        all_lines = all_lines[::2]
+    # Save to file
+    with open(output_file, "w") as f:
+        f.write("date_begin_EIS  -  date_end_EIS                   Comment\n")
+        for line in all_lines:
+            f.write(line + "\n")
+
+    print(f"Saved {len(all_lines)} date ranges to {output_file}")
+#######################################################################################
+
 
