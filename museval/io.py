@@ -66,3 +66,11 @@ def iris_download_file(url_mod, obs_data_dir):
 
     return filepath
 ######################################################
+
+def is_complete(filepath, min_bytes=1024):
+    """
+    Return True if `filepath` exists and is at least `min_bytes` long.
+    """
+    return os.path.exists(filepath) and os.path.getsize(filepath) >= min_bytes
+
+######################################################
