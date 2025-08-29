@@ -59,7 +59,7 @@ def get_response(date = None,
                  abund = "sun_photospheric_2021_asplund",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 bands = [94, 131, 171, 193, 211, 304, 335],  
+                 channels = [94, 131, 171, 193, 211, 304, 335],  
                  resp_dir = None, 
                  delta_month = 12,
                  ):
@@ -119,12 +119,12 @@ def get_response(date = None,
         print(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
-        response_all = read_response(zarr_file).compute()
-        if  np.array_equal(bands, response_all.band):
-            print("The bands of the response function match.")
+        response_all = xr.open_zarr(zarr_file).compute() #read_response(zarr_file).compute()
+        if  np.array_equal(channels, response_all.channel):
+            print("The channels of the response function match.")
             return response_all ##this is fine, no need to create a new response function
         else:
-           print("The bands of the response function do not match the requested bands. Creating a new response function.")
+           print("The channels of the response function do not match the requested channels. Creating a new response function.")
            need_new_response = True ##Treating this as a flag to create a new response function
             
 
@@ -232,7 +232,7 @@ def get_response(date = None,
 
 
 
-def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
+def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     import xarray as xr
     from muse.synthesis.synthesis import vdem_synthesis
     import os
@@ -240,9 +240,9 @@ def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
-    files = glob.glob(os.path.join(vdem_dir,'*'))
-    print(f'*** Loading {files[0]} into vdem')
-    vdem = xr.open_zarr(files[0]).compute()
+    files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
+    print(f'*** Loading {files} into vdem')
+    vdem = xr.open_zarr(files).compute()
 
     # vdem_cut
     vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
