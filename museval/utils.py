@@ -56,7 +56,7 @@ def get_response(date = None,
                  units = 'DN',
                  lgtgmax=7.0,lgtgmin=4.4, lgtgstep=0.1,
                  uzmax = 200., uzmin = -200., uzstep = 50.,
-                 abund = "sun_coronal_2021_chianti",
+                 abund = "sun_photospheric_2021_asplund",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
                  bands = [94, 131, 171, 193, 211, 304, 335],  
@@ -150,17 +150,16 @@ def get_response(date = None,
                     response = ch.wavelength_response() * ch.plate_scale
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
             else:
                 print(f'*** Computing {units} response function for {ch.channel.to_string()}'
                        ' date {obs_date.strftime("%b%Y")}')
                 try:
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) \
-                        * ch.plate_scale
-                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
+                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             # else:
             # print(f'*** Computing {units} response function for {ch.channel.to_string()} date {obs_date.strftime("%b%Y")}')
             # response = ch.wavelength_response(obstime = obs_date) * ch.plate_scale
@@ -190,14 +189,21 @@ def get_response(date = None,
                                            new_units="1e-27 cm5 DN / (Angstrom s)",
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
+                                           gain =18,
                                            )
             ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
+            ci_resp = ci_resp.drop_vars("band")
             if band == bands[0]:
                 response_all = ci_resp
             else:
-                response_all = xr.concat([response_all, ci_resp], dim="band")
+                response_all = xr.concat([response_all, ci_resp], dim="channel")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
+        response_all = response_all.assign_coords(channel = ("channel", bands))
+        if "band" in response_all.SG_resp.dims:
+            response_all["SG_resp"] = response_all["SG_resp"].squeeze("band", drop=True)
+            if "band" in response_all.dims:
+                response_all = response_all.drop_dims("band")
         response_all = response_all.compute()
         save_response = True
 #
@@ -223,6 +229,8 @@ def get_response(date = None,
             response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
             print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
+
+
 
 def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
     import xarray as xr
