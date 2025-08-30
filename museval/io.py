@@ -2,14 +2,10 @@ import os
 
 ### depending on setup, this routine may not be needed
 ######################################################
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
-from parfive import SessionConfig
+
 def create_session(*args,**keywords):
     from aiohttp import ClientSession, TCPConnector
     return ClientSession(connector=TCPConnector(ssl=False))
-from parfive import Downloader
-dl = Downloader(config=SessionConfig(aiohttp_session_generator=create_session))
 
 ######################################################
 def extract_remote_str(row):
@@ -36,7 +32,6 @@ def files_to_retry(results, download_dir, min_bytes=1024):
     Using for EIS and AIA data download from Fido.
     """
     import os
-    from sunpy.util import is_complete
     retry = []
     for table in results:
         for row in table:
