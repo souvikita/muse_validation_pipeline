@@ -51,6 +51,8 @@ def find_response(obs_date,
                 zarr_file = resp_files[iresp]
     return zarr_file, obs_date
 
+# **************************************************
+
 def get_response(date = None, 
                  save_response = False,
                  units = 'DN',
@@ -230,7 +232,7 @@ def get_response(date = None,
             print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
-
+# **************************************************
 
 def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     import xarray as xr
@@ -325,6 +327,31 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
             f.write(line + "\n")
 
     print(f"Saved {len(all_lines)} date ranges to {output_file}")
-#######################################################################################
 
+# **************************************************
 
+def wavelength_in_cube(data_file, target_wave_str):
+    import eispac
+    """
+    Check if the target wavelength (as string) is present in the EIS data file.
+
+    Parameters:
+        data_file (str): Path to the EIS data file.
+        target_wave_str (str): Target wavelength as string, e.g., '195.120'.
+
+    Returns:
+        bool: True if the wavelength is found in any line_id, False otherwise.
+    """
+    try:
+        wininfo = eispac.read_wininfo(data_file)
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+            if wvl_min <= float(target_wave_str) <= wvl_max:
+                return True
+        return False
+        # available_lines = [win.line_id for win in wininfo]
+        # return any(target_wave_str in line for line in available_lines)
+    except Exception as e:
+        print(f"Error checking wavelengths in {data_file}: {e}")
+        return False
+
+# **************************************************
