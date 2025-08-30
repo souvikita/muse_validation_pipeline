@@ -19,55 +19,16 @@ from astropy.visualization import ImageNormalize, LogStretch, time_support
 from tqdm import tqdm
 import astropy.io.ascii as ascii
 import pdb
+from museval.io import create_session, is_complete, extract_remote_str, files_to_retry
 
 ### depending on setup, this routine may not be needed
 ######################################################
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 from parfive import SessionConfig
-def create_session(*args,**keywords):
-    from aiohttp import ClientSession, TCPConnector
-    return ClientSession(connector=TCPConnector(ssl=False))
 from parfive import Downloader
 dl = Downloader(config=SessionConfig(aiohttp_session_generator=create_session))
 ######################################################
-
-def is_complete(filepath, min_bytes=1024):
-    """
-    Return True if `filepath` exists and is at least `min_bytes` long.
-    """
-    return os.path.exists(filepath) and os.path.getsize(filepath) >= min_bytes
-
-def extract_remote_str(row):
-    """
-    From an Astropy Table row, find the first column whose value looks like a file path or URL
-    (endswith .fits, .h5, .data, .head, etc.), and return it as string.
-    """
-    for col in row.table.colnames:
-        val = row[col]
-        # convert bytes to str
-        s = val.decode('utf-8') if isinstance(val, (bytes, bytearray)) else str(val)
-        if s.lower().endswith(('.fits', '.fit', '.h5', '.hdf5', '.data', '.head', '.txt', '.csv')):
-            return s
-    # nothing matched
-    raise KeyError(f"No remote file-like value in row; columns tried: {row.table.colnames}")
-
-
-def files_to_retry(results, download_dir, min_bytes=1024):
-    """
-    Given a FidoResults `results` and the directory where files are stored,
-    return a list of rows for which the local file is missing or too small.
-    Determines file identity by inspecting row values.
-    """
-    retry = []
-    for table in results:
-        for row in table:
-            remote_str = extract_remote_str(row)
-            fname = os.path.basename(remote_str)
-            local = os.path.join(download_dir, fname)
-            if not is_complete(local, min_bytes=min_bytes):
-                retry.append(row)
-    return retry
 
 e_mail = 'sbose925@gmail.com'
 os.environ['text_files_path'] = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/Plage_datasets/HOP_307/'
