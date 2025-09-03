@@ -51,16 +51,17 @@ def find_response(obs_date,
                 zarr_file = resp_files[iresp]
     return zarr_file, obs_date
 
+# **************************************************
 
 def get_response(date = None, 
                  save_response = False,
                  units = 'DN',
                  lgtgmax=7.0,lgtgmin=4.4, lgtgstep=0.1,
                  uzmax = 200., uzmin = -200., uzstep = 50.,
-                 abund = "sun_coronal_2021_chianti",
+                 abund = "sun_photospheric_2021_asplund",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 bands = [94, 131, 171, 193, 211, 304, 335],  
+                 channels = [94, 131, 171, 193, 211, 304, 335],  
                  resp_dir = None, 
                  delta_month = 12,
                  ):
@@ -100,6 +101,7 @@ def get_response(date = None,
     from muse.instr.utils import chianti_gofnt_linelist
     from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
     from muse.synthesis.synthesis import transform_resp_units
+    from muse.instr.utils import convert_resp2muse_ciresp
 #  Temperature limits, abundance, pressure, and pixel size
 #  NB note that available abundance files depend on Chianti version!
 #  Other possible abundance files to look for...
@@ -119,12 +121,12 @@ def get_response(date = None,
         print(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
-        response_all = read_response(zarr_file).compute()
-        if  np.array_equal(bands, response_all.band):
-            print("The bands of the response function match.")
+        response_all = xr.open_zarr(zarr_file).compute() #read_response(zarr_file).compute()
+        if  np.array_equal(channels, response_all.channel):
+            print("The channels of the response function match.")
             return response_all ##this is fine, no need to create a new response function
         else:
-           print("The bands of the response function do not match the requested bands. Creating a new response function.")
+           print("The channels of the response function do not match the requested channels. Creating a new response function.")
            need_new_response = True ##Treating this as a flag to create a new response function
             
 
@@ -150,17 +152,16 @@ def get_response(date = None,
                     response = ch.wavelength_response() * ch.plate_scale
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
             else:
                 print(f'*** Computing {units} response function for {ch.channel.to_string()}'
                        ' date {obs_date.strftime("%b%Y")}')
                 try:
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) \
-                        * ch.plate_scale
-                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) * ch.plate_scale
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
+                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             # else:
             # print(f'*** Computing {units} response function for {ch.channel.to_string()} date {obs_date.strftime("%b%Y")}')
             # response = ch.wavelength_response(obstime = obs_date) * ch.plate_scale
@@ -190,14 +191,21 @@ def get_response(date = None,
                                            new_units="1e-27 cm5 DN / (Angstrom s)",
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
+                                           gain =18,
                                            )
             ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
+            ci_resp = ci_resp.drop_vars("band")
             if band == bands[0]:
                 response_all = ci_resp
             else:
-                response_all = xr.concat([response_all, ci_resp], dim="band")
+                response_all = xr.concat([response_all, ci_resp], dim="channel")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
+        response_all = response_all.assign_coords(channel = ("channel", bands))
+        if "band" in response_all.SG_resp.dims:
+            response_all["SG_resp"] = response_all["SG_resp"].squeeze("band", drop=True)
+            if "band" in response_all.dims:
+                response_all = response_all.drop_dims("band")
         response_all = response_all.compute()
         save_response = True
 #
@@ -216,21 +224,27 @@ def get_response(date = None,
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
         try:
-            response_all.to_zarr(f'{zarr_file}.zarr', mode = "w")
-            print(f"Saved response to {f'{zarr_file}.zarr'}")
+            response_all.to_zarr(f'{zarr_file}', mode = "w")
+            print(f"Saved response to {f'{zarr_file}'}")
         except:
-            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
             response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
             print(f"Saved response to {f'{zarr_file}.nc'}")
     return response_all
 
-def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
+# **************************************************
+
+def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
+    import xarray as xr
+    from muse.synthesis.synthesis import vdem_synthesis
+    import os
+    import glob
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
-    files = glob.glob(os.path.join(vdem_dir,'*'))
-    print(f'*** Loading {files[0]} into vdem')
-    vdem = xr.open_zarr(files[0]).compute()
+    files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
+    print(f'*** Loading {files} into vdem')
+    vdem = xr.open_zarr(files).compute()
 
     # vdem_cut
     vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
@@ -247,6 +261,8 @@ def aia_synthesis(aia_resp, work_dir, vdem_dir, swap_dims = True):
 # **************************************************
 
 def readFits(filename, ext=0):
+  from astropy.io import fits
+  import numpy as np
   """
   Just defining a simple readFits function without
   bothering about the complex header options of astropy fits.
@@ -259,3 +275,83 @@ def readFits(filename, ext=0):
   return dat
 # **************************************************
 
+def save_eis_iris_dates(urls, output_file, alternate_only=False):
+    """
+    Downloads JSON data from multiple LMSAL HEK URLs,
+    extracts start/stop times, and saves them in:
+    YYYY-MM-DDTHH:MM:SS - YYYY-MM-DDTHH:MM:SS        ''
+    in a text file.
+    Parameters
+    ----------
+    urls : list of str
+        List of JSON URLs to fetch.
+    output_file : str
+        Path to output text file.
+    """
+    import requests
+    from datetime import datetime
+    all_lines = set()
+
+    for url in urls:
+        print(f"Fetching: {url}")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            print(f"Number of events in JSON: {len(data.get('Events', []))}")
+        except Exception as e:
+            print(f"Failed to fetch {url}: {e}")
+            continue
+
+        for event in data.get("Events", []):
+            instruments = event.get("instrument", [])
+            if "IRIS" not in instruments:
+                continue
+            start_time = event.get("startTime")
+            stop_time = event.get("stopTime")
+            if start_time and stop_time:
+                start_fmt = start_time.replace(" ", "T")
+                stop_fmt = stop_time.replace(" ", "T")
+                all_lines.add(f"{start_fmt} - {stop_fmt}        ''")
+    # Sort by start date
+    all_lines = list(all_lines)
+    all_lines = sorted(list(all_lines), key=lambda line: datetime.strptime(line.split(" - ")[0], "%Y-%m-%dT%H:%M:%S"))
+
+    # alternate_only= True
+    if alternate_only:
+        all_lines = all_lines[::2]
+    # Save to file
+    with open(output_file, "w") as f:
+        f.write("date_begin_EIS  -  date_end_EIS                   Comment\n")
+        for line in all_lines:
+            f.write(line + "\n")
+
+    print(f"Saved {len(all_lines)} date ranges to {output_file}")
+
+# **************************************************
+
+def wavelength_in_cube(data_file, target_wave_str):
+    import eispac
+    """
+    Check if the target wavelength (as string) is present in the EIS data file.
+
+    Parameters:
+        data_file (str): Path to the EIS data file.
+        target_wave_str (str): Target wavelength as string, e.g., '195.120'.
+
+    Returns:
+        bool: True if the wavelength is found in any line_id, False otherwise.
+    """
+    try:
+        wininfo = eispac.read_wininfo(data_file)
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+            if wvl_min <= float(target_wave_str) <= wvl_max:
+                return True
+        return False
+        # available_lines = [win.line_id for win in wininfo]
+        # return any(target_wave_str in line for line in available_lines)
+    except Exception as e:
+        print(f"Error checking wavelengths in {data_file}: {e}")
+        return False
+
+# **************************************************
