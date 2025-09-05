@@ -11,6 +11,8 @@ Goal: provide consistent, lightweight validation steps so numerical models can b
 Internal coordination: linked to the `muse_science` Slack workspace (private channel: `#museval`).
 
 ## Installation
+_Better to install under a virtual conda/mamba environment_ e.g.: 
+`conda create -n your_env_name`
 
 Clone and install in editable mode:
 
