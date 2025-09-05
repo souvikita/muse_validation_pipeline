@@ -66,16 +66,24 @@ def make_iris_vdem(simulation, snap,
     syn_dopaxis = np.linspace(minuz, maxuz, nuz)
     snapname,workdir = pick_sim(simulation, work = workdir)
     vdem_dir = os.path.join(workdir,"vdem")
-    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}.zarr")
+    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}")
     if compute:
         ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
         vdem = ddbtr.from_hel2vdem(snap, syn_dopaxis, lgtaxis, axis=2, xyrotation=True)
     else:
-        vdem = xr.open_zarr(zarr_file)
+        try:
+            vdem = xr.open_zarr(f'{zarr_file}.zarr')
+        except:
+            vdem = xr.open_dataset(f'{zarr_file}.nc')
         save = False
     if save:
-        vdem.to_zarr(zarr_file)
-        print(f"Saved {zarr_file}")
+        try:
+            vdem.to_zarr(f'{zarr_file}.zarr', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.zarr'}")
+        except:
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.nc'}")
     if save_bz:
         ddbtr.set_snap(snap)
         iz0 = np.argmin(np.abs(ddbtr.z - z0))
