@@ -30,7 +30,7 @@ from parfive import Downloader
 dl = Downloader(config=SessionConfig(aiohttp_session_generator=create_session))
 ######################################################
 
-e_mail = 'sbose925@gmail.com'
+e_mail = 'bose@lmsal.com'
 os.environ['text_files_path'] = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/Plage_datasets/HOP_307/'
 os.environ['eis_data_path'] = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/Plage_datasets/HOP_307/'
 
