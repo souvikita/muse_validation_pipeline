@@ -22,28 +22,26 @@ cd muse_validation_pipeline
 pip install -e .
 ```
 
-(If you later add optional dependencies, note them here.)
-
 ## Quick Concept
 
-1. Retrieve / point to a simulation (e.g. Bifrost, MHD model, etc.).
-2. Select corresponding observation sets (AIA / HMI / EIS / IRIS).
-3. Run comparison / diagnostic routines (intensity synthesis, line ratios, basic statistics, etc.).
-4. Produce a small summary (numbers / plots).
+1. Retrieve / point to a simulation in the form of a Velocity DEM (e.g. Bifrost, MHD model, etc.).
+2. Synthesize observables by taking into account the different instrumental response functions. 
+3. Select corresponding observation sets (AIA / HMI / EIS / IRIS). There are functions to output observations in the form of .txt files.
+4. Run comparison / diagnostic routines (intensity synthesis, line ratios, basic statistics, etc.).
+5. Produce a small summary plots.
 
 (Actual commands will be documented once interfaces stabilize.)
 
 ## Usage (Placeholder)
 
 Usage examples will be added once the first comparison scripts are finalized.  
-For now, see individual modules / scripts as they are added.
+For now, see `working_codes` inside the branch `bose`.
 
 
 ## Contributing
 
 Small, focused improvements welcome.  
 Open an issue or draft a PR once there is a clearer module layout.
-
 
 
 ---
