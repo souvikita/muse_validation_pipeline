@@ -60,6 +60,8 @@ def anytim2tai(time_str):
 from scipy.interpolate import InterpolatedUnivariateSpline
 
 def interpol_eis_ea(date, wavelength, short=False, long=False, radcal=False, ea_file=None, quiet=False):
+    import os
+    base_dir = os.path.dirname(__file__)
     # Validate input values
     if np.size(date) != 1:
         raise ValueError('ERROR: please input a single date')
@@ -81,7 +83,7 @@ def interpol_eis_ea(date, wavelength, short=False, long=False, radcal=False, ea_
     elif long:
         wavelength = 1000
 
-    fit_ea = readsav('eis_calibration/fit_eis_ea_2023-05-04.sav')['fit_ea']
+    fit_ea = readsav(os.path.join(base_dir,'fit_eis_ea_2023-05-04.sav'))['fit_ea']
     # Extract the necessary data from the loaded file
     fit_dates = fit_ea.date_obs[0].astype(str)
     fit_easw = fit_ea.sw_ea[0]
