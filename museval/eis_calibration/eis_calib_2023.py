@@ -3,8 +3,8 @@ import re
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.io import readsav
-from eis_calibration.eis_calib_2014 import eis_ea
-
+#from eis_calibration.eis_calib_2014 import eis_ea
+from .eis_calib_2014 import eis_ea
 def anytim2tai(time_str):
     """
     Converts a given time string into TAI (Temps Atomique International) format.
