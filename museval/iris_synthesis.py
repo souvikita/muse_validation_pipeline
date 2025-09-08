@@ -3,6 +3,7 @@ import numpy as np
 import xarray as xr
 import br_py.tools as btr
 from muse.synthesis.synthesis import vdem_synthesis
+from irispreppy.radcal import iris_get_response as igr
 import datetime as dt
 
 def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
@@ -32,7 +33,8 @@ def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
    'en'          'en024031_emer3.0_str'             'en024031_emer3.0/str'
    'qs'          'qs072100'                         'qs072100'
    'qsd2'        'qs072100_d2'                      'qs072100_d2'
-   'pl72'        'pl072100'                         'pl072100'
+   'pl072100'    'pl072100'                         'pl072100'
+   'pl072050'    'pl072050'                         'pl072050'
    'pl24'        'pl024031'                         'pl024031'
    'pl24hion'    'pl024031'                         'pl024031_hion'
    """
@@ -51,37 +53,49 @@ def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
 
 def make_iris_vdem(simulation, snap,
                    save = True, 
-                   save_bz = True, z0 = -0.15, # height at which to save Bz [Mm] 
+                   save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
                    compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
                    code = 'Bifrost', 
                    minltg = 4.2, maxltg = 5.5, dltg = 0.1,
                    minuz = -200, maxuz = 200, duz = 10.,
+                   workdir = './',
                    ):
     ntg = int((maxltg-minltg)/dltg) + 1; print(f'Number of temperature bins {ntg:03d}')
     lgtaxis = np.linspace(minltg,maxltg,ntg)
     nuz = int((maxuz-minuz)/duz)+1 ; print(f'Number of velocity bins {nuz:03d}')
     syn_dopaxis = np.linspace(minuz, maxuz, nuz)
-    snapname,workdir = pick_sim(simulation)
+    snapname,workdir = pick_sim(simulation, work = workdir)
     vdem_dir = os.path.join(workdir,"vdem")
-    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}.zarr")
-    ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
+    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}")
     if compute:
+        ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
         vdem = ddbtr.from_hel2vdem(snap, syn_dopaxis, lgtaxis, axis=2, xyrotation=True)
     else:
+        try:
+            vdem = xr.open_zarr(f'{zarr_file}.zarr')
+        except:
+            vdem = xr.open_dataset(f'{zarr_file}.nc')
         save = False
     if save:
-        vdem.to_zarr(zarr_file)
-        print(f"Saved {zarr_file}")
-    else:
-        vdem = xr.open_zarr(zarr_file)
+        try:
+            vdem.to_zarr(f'{zarr_file}.zarr', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.zarr'}")
+        except:
+            print(f"*** Error: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.nc'}")
     if save_bz:
         ddbtr.set_snap(snap)
-        bz = ddbtr.get_var('bz')
         iz0 = np.argmin(np.abs(ddbtr.z - z0))
+        bz0 = bz[:,:,iz0]
         bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
-        np.save(bz_file, bz[:,:,iz0], allow_pickle = True)
+        np.save(bz_file, bz0, allow_pickle = True)
         print(f"Saved {bz_file}")
     return vdem
+
+def get_vdem_bz(workdir, snap, z0 = -0.15):
+       f = np.load(os.path.join(workdir,"vdem",f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy'))
+       return f
 
 def make_line_response(ionstr = ["si_4"],
                        wvlr = np.array([1393.75,1393.76]),
@@ -90,6 +104,9 @@ def make_line_response(ionstr = ["si_4"],
                        uzmax       = 200.0, uzmin       = -200.0, uzstep      = 5.0,             # km/s
                        instr_width = 0.0, # km/s
                        ):
+    import astropy.units as u
+    from muse.instr.utils import create_eff_area_xarray
+    from muse.instr.utils import chianti_gofnt_linelist, create_resp_func
     # Make sure the wavelength range is small to select a single line 
     # The VDEM could be expanded to include density dependence (and the response function)
     logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
@@ -119,7 +136,7 @@ def make_line_response(ionstr = ["si_4"],
         wvlr=[wvlmin, wvlmax],
         num_lines_keep=n,
     )
-    return resp
+    return resp, line_list
 
 def transform_iris_resp_units(
     resp_input: xr.Dataset,
@@ -157,20 +174,27 @@ def transform_iris_resp_units(
         # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr 
         resp.SG_resp.attrs["units"] = str(1.e-27*u.cm**5*u.ergu / (u.angstrom*u.s*u.sr))
 
-    wvlns, lamwin, rcfs = iris_radiometric(iris_file)
+    iris = iris_radiometric(iris_file)
 
-    units_conv = weno4(resp.wavelength,wvlns[line][lamwin[line][0]:lamwin[line][1]],rcfs[line] )
+    units_conv = weno4(resp.wavelength, 
+                       iris['wvlns'][line][iris['lamwin'][line][0]:iris['lamwin'][line][1]],iris['rcfs'][line] )
 
     if np.size(units_conv) > 1:
         units_ds = xr.DataArray(data=units_conv, dims=resp.wavelength.dims, coords={"wavelength": resp.wavelength})
         resp["SG_resp"] = resp.SG_resp / units_ds
+#        wvl_ds = xr.DataArray(data = iris)
+        resp["wavelength"] = (resp.wavelength-iris['crval'][line])/iris['cdeltw'][line]
     else:
         resp["SG_resp"] = resp.SG_resp.isel(line=0) / units_conv
+        resp["wavelength"] = (resp.wavelength-iris['crval'][line])/iris['cdeltw'][line]
 
     resp.SG_resp.attrs["units"] = new_units
+#    resp["FOVX"] = iris['fovx']
+#    resp["FOVY"] = iris['fovy']
+#    resp["CDELTY"] = iris['cdelty']
 
     add_history(resp, locals(), transform_iris_resp_units)
-    return resp
+    return resp, iris['fovx'], iris['fovy'], iris['cdelty']
 
 def iris_radiometric(iris_file,
                      set_exptime = False):
@@ -207,6 +231,13 @@ def iris_radiometric(iris_file,
                         indices={'fdNUV':0}
                 else:
                         indices={'fdFUV':0}
+
+        ###################
+        # FOVX, FOVY.     #
+        ###################
+        fovx = hdr['FOVX']
+        fovy = hdr['FOVY']
+
         ###################
         # Wavelength axes #
         ###################
@@ -304,6 +335,9 @@ def iris_radiometric(iris_file,
         lamwin={} #LAMbda WINdow
         wvlns={}
         rcfs={} #Radiometric Calibration FactorS
+        cdelt={}
+        crval={}
+
         for key in indices:
                 ehdr = fits.getheader(iris_file, ext = int(indices[key])) 
                 if key=='fdFUV':
@@ -311,30 +345,39 @@ def iris_radiometric(iris_file,
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
                         lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
-
+                        cdelt[key] = ehdr['CDELT3']
+                        crval[key] = ehdr['CRVAL3']
                 elif key=='fdNUV':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS3'])-ehdr['CRPIX3']+1)*ehdr['CDELT3']+ehdr['CRVAL3']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
                         lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
+                        cdelt[key] = ehdr['CDELT3']
+                        crval[key] = ehdr['CRVAL3']
 
                 elif hdr['TDET'+str(indices[key])]=='FUV1':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
                         lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
+                        cdelt[key] = ehdr['CDELT1']
+                        crval[key] = ehdr['CRVAL1']
 
                 elif hdr['TDET'+str(indices[key])]=='FUV2':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV2[0])&(wvlns[key]<FUV2[-1])]
                         lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV2, eFUV2/aFUV2)*const[key]
+                        cdelt[key] = ehdr['CDELT1']
+                        crval[key] = ehdr['CRVAL1']
 
                 elif hdr['TDET'+str(indices[key])]=='NUV':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
                         lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
+                        cdelt[key] = ehdr['CDELT1']
+                        crval[key] = ehdr['CRVAL1']
 
                 else:
                         raise ValueError("You have detectors that are not FUV1, FUV2, or NUV in your fits file.")
@@ -342,7 +385,10 @@ def iris_radiometric(iris_file,
         for i in list(rcfs.keys()):
                 rcfs[i]=rcfs[i].astype(np.float32)
 
-        return wvlns, lamwin, rcfs
+        params = {"wvlns": wvlns, "lamwin": lamwin, "rcfs": rcfs, "cdeltw": cdelt, "crval": crval,
+                  "cdelty": ehdr['CDELT2'], "fovx": fovx, "fovy": fovy}
+
+        return params
 
 def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H:%M:%S.%fZ'), iris_file = None):
     """
