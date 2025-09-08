@@ -48,4 +48,7 @@ Open an issue or draft a PR once there is a clearer module layout.
 
 Questions / ideas: open an issue.
 
+The `eis_calibration` routines are from Andy To's Github repo: [EIS calibrations](https://github.com/andyto1234/EISPAC-Tutorial___Calibrations/tree/main)
+
+
 ### Thanks to ChatGPT 5.0 for helping to create this nice little ReadMe.
