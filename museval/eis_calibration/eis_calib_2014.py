@@ -129,10 +129,12 @@ def eis_ea(input_wave, short=False, long=False):
     return ea
 
 def eis_effective_area_read(short=False, long=False):
+    import os
+    base_dir = os.path.dirname(__file__)
     if short:
-        preflight = readsav('eis_calibration/preflight_calib_short.sav')
+        preflight = readsav(os.path.join(base_dir, 'preflight_calib_short.sav'))
     if long:
-        preflight = readsav('eis_calibration/preflight_calib_long.sav')
+        preflight = readsav(os.path.join(base_dir, 'preflight_calib_long.sav'))
     wave = preflight['wave']
     ea = preflight['ea']
     return wave, ea
