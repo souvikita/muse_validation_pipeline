@@ -142,7 +142,7 @@ def get_response(date = None,
                                            abundance = abund,
                                            wavelength_range = [80,850],
                                            )
-        for band in bands:
+        for band in channels:
             ch = Channel(band*u.angstrom)
             if obs_date is None:
                 #print(f'*** Computing {units} response function for {ch.channel.to_string()}')
@@ -196,12 +196,12 @@ def get_response(date = None,
             ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
             ci_resp = ci_resp.drop_vars("band")
-            if band == bands[0]:
+            if band == channels[0]:
                 response_all = ci_resp
             else:
                 response_all = xr.concat([response_all, ci_resp], dim="channel")
         response_all["SG_resp"] = response_all.SG_resp.fillna(0)
-        response_all = response_all.assign_coords(channel = ("channel", bands))
+        response_all = response_all.assign_coords(channel = ("channel", channels))
         if "band" in response_all.SG_resp.dims:
             response_all["SG_resp"] = response_all["SG_resp"].squeeze("band", drop=True)
             if "band" in response_all.dims:
@@ -353,5 +353,47 @@ def wavelength_in_cube(data_file, target_wave_str):
     except Exception as e:
         print(f"Error checking wavelengths in {data_file}: {e}")
         return False
+
+# **************************************************
+
+def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
+    """
+    Saves HMI cutouts corresponding to the EIS data.
+
+    Parameters:
+    -----------
+    magnetogram_path : str
+        Path to the directory containing HMI magnetogram data files.
+    output_dir : str
+        Directory where the output cutouts will be saved.
+    eis_data_list : list
+        List of EIS data arrays for which corresponding HMI cutouts are to be saved.
+        Need to use eispac.read_cube(downloaded_data_h5[0])
+    """
+    import os
+    from glob import glob
+    if not eis_data_list:
+        print("No EIS data found for:", magnetogram_path)
+        return
+    # Find the first matching magnetogram and AIA file
+    mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
+    aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
+    if not mag_files or not aia_files:
+        print(f"Missing HMI or AIA files in {magnetogram_path}")
+        return
+    hmi_map = sunpy.map.Map(mag_files[0])
+    aia_map_fdisk = sunpy.map.Map(aia_files[0])
+    out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs)
+    for eis_data in eis_data_list:
+        try:
+            meta = eis_data.meta
+            bottom_left = SkyCoord(meta['extent_arcsec'][0]*u.arcsec, meta['extent_arcsec'][2]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
+            top_right = SkyCoord(meta['extent_arcsec'][1]*u.arcsec, meta['extent_arcsec'][3]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
+            cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
+            output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
+            cutout_hmi_aligned.save(output_file)
+            print(f"Saved HMI cutout to {output_file}")
+        except Exception as e:
+            print(f"Error processing EIS data: {e}")
 
 # **************************************************
