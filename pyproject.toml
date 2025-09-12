@@ -43,6 +43,7 @@ dependencies = [
   'br_py @ git+https://gitlab.com/LMSAL_HUB/sims_hub/br_hub/br_py.git',
   'python-dateutil>=2.9.0',
   'periodictable',
+  'irispreppy',
 ]
 
 [project.urls]
