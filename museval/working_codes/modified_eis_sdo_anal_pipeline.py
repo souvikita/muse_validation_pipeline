@@ -82,10 +82,10 @@ if __name__ == '__main__':
                 max_val = muse_AIA.flux.sel(channel=channel).max()
                 bins = np.logspace(np.log10(min_val), np.log10(max_val), num_bins)
                 hist, bin_edges = np.histogram(synth_aiadata, bins=bins)
-                
-                ax[0].hist(synth_aiadata.ravel(), bins=bins, histtype='step',color=colors_channel[i], 
+
+                ax[0].hist(synth_aiadata.ravel(), bins=bins, histtype='step',color=colors_channel[i],
                         label=f'AIA {channel}',weights=np.ones(len(synth_aiadata.ravel())) / len(synth_aiadata.ravel()))
-                
+
                 ax[0].legend(loc = 'best')
                 ax[0].set_xscale('log')
                 ax[0].set_ylabel('Fraction')
@@ -129,7 +129,7 @@ if __name__ == '__main__':
             fig_width = panel_width * n_lines
             fig_height = panel_width * aspect
             fig = plt.figure(figsize=(fig_width, fig_height))
-            
+
             for idx_line, line in enumerate(channels):
                 AIA_DATA[line] = sunpy.map.Map(cutout_files[idx_line])
                 exp_time = AIA_DATA[line].exposure_time
@@ -158,7 +158,7 @@ if __name__ == '__main__':
             # plt.show()
             os.chdir(cutouts_data_path)
             output_dir = './pipeline_figs'
-            os.makedirs(output_dir, exist_ok=True) 
+            os.makedirs(output_dir, exist_ok=True)
             fig.savefig(os.path.join(output_dir,f"{date}_cutouts.png"),dpi=300,bbox_inches='tight')
             plt.close(fig)
 
@@ -256,7 +256,7 @@ if __name__ == '__main__':
                         # fig_width = panel_width * 2  # two panels side by side
                         fig_height = panel_height  # two panels stacked vertically
                         # fig_height = panel_width * aspect/8.  # maintain aspect
-                        fig = plt.figure(figsize=(fig_width, fig_height)) 
+                        fig = plt.figure(figsize=(fig_width, fig_height))
                         gs = gridspec.GridSpec(nrows=1, ncols=2, width_ratios=[1, 1], wspace=0.25)
                         ax1 = fig.add_subplot(gs[0], projection=inten_map)
                         if target_template == 'fe_12_195_119.2c.template.h5':
@@ -280,7 +280,7 @@ if __name__ == '__main__':
                             cbar.ax.set_ylabel(r'[erg s$^{-1}$ cm$^{-2}$ s$^{-1}$]')
                             ax1.set_title(f'Fe XV {eis_spect}',size=10)
                             ax1.grid(False)
-                        
+
                         vel_map.plot_settings["norm"]=None
                         ax2 = fig.add_subplot(gs[1],projection=vel_map)
                         im=vel_map.plot(axes=ax2,vmax=10,vmin=-10,cmap='coolwarm')
@@ -298,7 +298,7 @@ if __name__ == '__main__':
                         plt.close(fig)
                     else:
                         print(f"Skipping wavelength {eis_spect} Å: Not found in {downloaded_data_h5[0]}")
-            
+
              # Plotting the EIS intensity histograms
             n_panels_eis_hist = sum(eis_list_data)
             if n_panels_eis_hist == 0:
@@ -336,7 +336,7 @@ if __name__ == '__main__':
                     axs_twin.tick_params(axis='y', labelcolor=color)
                 else:
                     print(f"Skipping histogram for wavelength {eis_spect} Å: Not found in the EIS data.")
-            
+
             plt.tight_layout()
             os.chdir(cutouts_data_path)
             output_dir = './pipeline_figs'
@@ -352,7 +352,7 @@ if __name__ == '__main__':
             ## Load an AIA map to get the WCS
             aia_map_fdisk = sunpy.map.Map(cutouts_data_path+'/*.193.image_lev1.fits')
             out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs) ## actual reprojection from HMI to AIA based on WCS headers
-            cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout 
+            cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout
             ## Now dynamically calculate figure size based on the number of subplots and aspect ratio
             ny, nx = cutout_hmi_aligned.data.shape
             aspect = ny / nx
@@ -381,7 +381,7 @@ if __name__ == '__main__':
             cbar.set_label(r'B$_{\mathrm{LOS}}$[G]')
 
             ax = fig.add_subplot(2, 2, 2, projection=cutout_hmi_aligned.wcs)
-            abs_data = np.abs(cutout_hmi_aligned.data) 
+            abs_data = np.abs(cutout_hmi_aligned.data)
             abs_map = sunpy.map.Map(abs_data, cutout_hmi_aligned.meta)
             im = abs_map.plot(axes=ax, clip_interval=(1, 99.99)*u.percent,cmap='YlGnBu')
             ax.grid(False)
@@ -407,7 +407,7 @@ if __name__ == '__main__':
             ax.set_ylabel('Fraction')
             ax.set_xlabel(r'B$_{\mathrm{LOS}}$[G]')
             ax.axvline(x=0,ls='-',color='black')
-            
+
             bins = np.linspace(abs_data.min(),abs_data.max(),100)
             # data_hmi = cutout_hmi_aligned.data
             ax = fig.add_subplot(2, 2, 4)
@@ -423,7 +423,7 @@ if __name__ == '__main__':
             os.chdir(cutouts_data_path)
             output_dir = './pipeline_figs'
             os.makedirs(output_dir, exist_ok=True)
-            fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight') 
+            fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight')
             plt.close(fig)
 
             ## Plot a fukll disk AIA map and draw the cutout region

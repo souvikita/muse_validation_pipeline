@@ -73,7 +73,7 @@ def wavelength_in_cube(data_file, target_wave_str):
     """
     try:
         wininfo = eispac.read_wininfo(data_file)
-        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):
             if wvl_min <= float(target_wave_str) <= wvl_max:
                 return True
         return False
@@ -83,7 +83,7 @@ def wavelength_in_cube(data_file, target_wave_str):
         print(f"Error checking wavelengths in {data_file}: {e}")
         return False
 
-    
+
 
 if __name__ == '__main__':
     __spec__ = None
@@ -132,7 +132,7 @@ if __name__ == '__main__':
         ax[0].legend(loc = 'upper right')
         ax[0].set_xscale('log')
         ax[0].set_ylabel('Fraction')
-        
+
         ax[1].hist(synth_aiadata.ravel(), bins= bins,histtype='step', cumulative=True, label=line,
             weights=np.ones(len(synth_aiadata.ravel())) / len(synth_aiadata.ravel()))
         ax[1].set_xlabel(r'Intensity [DNs$^{-1}$]')
@@ -140,7 +140,7 @@ if __name__ == '__main__':
         ax[1].set_ylabel('ECDF')
         ax[1].set_xlim([1,15000])
         ax[1].axvline(x=np.mean(synth_aiadata.ravel()),color=colors[idx_line],lw=1,ls='--')
-        
+
     fig.suptitle(f'{code} simulation: {snapname} snap {snap:03d}',y=0.98)
     plt.tight_layout()
     plt.show()
@@ -160,7 +160,7 @@ if __name__ == '__main__':
     Region = 'Plage'
     #### -------- Date to be modified by the users ------####
     data_basedir = os.path.join(os.environ['HOME'], 'MUSE_outputs', 'EIS_IRIS_QS_obs', 'Plage_datasets')
-    obs_dates = ascii.read(data_basedir+'/plage_obs.txt') 
+    obs_dates = ascii.read(data_basedir+'/plage_obs.txt')
     obs_dates.add_index("date_begin_EIS")
     for date in obs_dates["date_begin_EIS"]:
         date_begin_EIS = obs_dates.loc[date]["date_begin_EIS"]
@@ -238,11 +238,11 @@ if __name__ == '__main__':
             ax[i//2][i%2].hist(data, bins=bins, label=f'AIA {Region}',cumulative=True, histtype='step',
                 weights=np.ones(len(data)) / len(data),color=colors[i])
             ax[i//2][i%2].axvline(x=np.mean(data).to_value(),color=colors[i],lw=1,ls='-')
-            # 
+            #
             bf = muse_AIA.flux.sel(line=line).to_numpy()
             bins = np.linspace(bf.min(), bf.max(), num_bins)
             hist, bin_edges = np.histogram(bf.ravel(), bins=bins)
-            ax[i//2][i%2].hist(bf.ravel(), bins=bins, label=f'{code} {Region}',cumulative=True, histtype='step', 
+            ax[i//2][i%2].hist(bf.ravel(), bins=bins, label=f'{code} {Region}',cumulative=True, histtype='step',
                     weights=np.ones(len(bf.ravel())) / len(bf.ravel()),color='tab:purple',ls='-.')
             ax[i//2][i%2].axvline(x=np.mean(bf.ravel()),color='tab:purple',lw=1,ls='-.')
             ax[i//2][i%2].set_xlabel(fr'{line} Intensity [DNs$^{-1}$]')
@@ -268,7 +268,7 @@ if __name__ == '__main__':
         save_hist = input("Do you want to save the histograms? (True/False): ")
         # Change the working directory to the cutouts data path and ensure directory exists
         os.chdir(cutouts_data_path)
-        output_dir = './pipeline_figs'  
+        output_dir = './pipeline_figs'
         os.makedirs(output_dir, exist_ok=True)  # Create the directory if it doesn't exist
         if save_hist == 'True':
             print('Saving the histograms')
@@ -286,7 +286,7 @@ if __name__ == '__main__':
         downloaded_head_h5 = glob.glob(cutouts_data_path+'/*.head.h5')
         data = eispac.read_cube(downloaded_data_h5[0])
         headers = eispac.read_cube(downloaded_head_h5[0])
-        
+
         eis_lines = [195.120,256.320, 284.160] # Fe XII and Fe XV
         target_template_name = ['fe_12_195_119.2c.template.h5', 'he_02_256_317.2c.template.h5','fe_15_284_160.2c.template.h5']
         eis_cmap = ['sdoaia193','sdoaia304','sohoeit284']
@@ -314,8 +314,8 @@ if __name__ == '__main__':
 
                 panel_width = 4  # inches per panel (adjust as needed)
                 fig_width = panel_width * 2  # two panels side by side
-                fig_height = fig_width * aspect/8.  # maintain aspect             
-                fig = plt.figure(figsize=(fig_width, fig_height)) 
+                fig_height = fig_width * aspect/8.  # maintain aspect
+                fig = plt.figure(figsize=(fig_width, fig_height))
                 if target_template == 'fe_12_195_119.2c.template.h5':
                     ax1 = fig.add_subplot(121,projection=inten_map)
                     im=inten_map.plot(axes=ax1, cmap = eis_cmap[0])
@@ -370,7 +370,7 @@ if __name__ == '__main__':
         ## Load an AIA map to get the WCS
         aia_map_fdisk = sunpy.map.Map(cutouts_data_path+'/*.193.image_lev1.fits')
         out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs) ## actual reprojection from HMI to AIA based on WCS headers
-        cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout 
+        cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout
 
         ## Now dynamically calculate figure size based on the number of subplots and aspect ratio
         ny, nx = cutout_hmi_aligned.data.shape
@@ -404,7 +404,7 @@ if __name__ == '__main__':
 
 
         ax = fig.add_subplot(2, 2, 2, projection=cutout_hmi_aligned.wcs)
-        abs_data = np.abs(cutout_hmi_aligned.data) 
+        abs_data = np.abs(cutout_hmi_aligned.data)
         abs_map = sunpy.map.Map(abs_data, cutout_hmi_aligned.meta)
         im = abs_map.plot(axes=ax, clip_interval=(1, 99.99)*u.percent,cmap='YlGnBu')
         ax.grid(False)
@@ -432,7 +432,7 @@ if __name__ == '__main__':
         ax.set_ylabel('Fraction')
         ax.set_xlabel(r'B$_{\mathrm{LOS}}$[G]')
         ax.axvline(x=0,ls='-',color='black')
-        
+
         bins = np.linspace(abs_data.min(),abs_data.max(),100)
         # data_hmi = cutout_hmi_aligned.data
         ax = fig.add_subplot(2, 2, 4)
@@ -448,15 +448,15 @@ if __name__ == '__main__':
         os.chdir(cutouts_data_path)
         output_dir = './pipeline_figs'
         os.makedirs(output_dir, exist_ok=True)
-        # Create the directory if it doesn't exist 
+        # Create the directory if it doesn't exist
         if save_hmi == 'True':
             print('Saving the HMI maps')
-            fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight')             
+            fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight')
             plt.close(fig)
         else:
             print('HMI maps not saved')
             plt.close(fig)
-        # plt.show()    
+        # plt.show()
 
         ## Plot a fukll disk AIA map and draw the cutout region
         exp_time_fdisk = aia_map_fdisk.exposure_time
@@ -483,7 +483,7 @@ if __name__ == '__main__':
         # Create the directory if it doesn't exist
         if save_aia_fdsik == 'True':
             print('Saving the full disk AIA maps')
-            fig.savefig(os.path.join(output_dir,f"{date}_AIA_fdisk.png"),dpi=300,bbox_inches='tight')             
+            fig.savefig(os.path.join(output_dir,f"{date}_AIA_fdisk.png"),dpi=300,bbox_inches='tight')
             plt.close(fig)
         else:
             print('AIA full disk maps not saved')

@@ -1,7 +1,7 @@
 import os
 import glob
-def find_response(obs_date, 
-                  resp_dir = None, 
+def find_response(obs_date,
+                  resp_dir = None,
                   delta_month = 12,
                   units = 'DN',
                   verbose = True):
@@ -11,8 +11,8 @@ def find_response(obs_date,
     Parameters:
     -------------------------
     obs_date: str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15
-              the obs date will be output as an astropy time object. 
-    resp_dir: string, optional, directory where response functions 
+              the obs date will be output as an astropy time object.
+    resp_dir: string, optional, directory where response functions
               are stored, default is None.
     delta_month: int, optional max number of months away from obs_date before
               new response function is suggested, default 12 months.
@@ -53,7 +53,7 @@ def find_response(obs_date,
 
 # **************************************************
 
-def get_response(date = None, 
+def get_response(date = None,
                  save_response = False,
                  units = 'DN',
                  lgtgmax=7.0,lgtgmin=4.4, lgtgstep=0.1,
@@ -61,24 +61,24 @@ def get_response(date = None,
                  abund = "sun_photospheric_2021_asplund",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 channels = [94, 131, 171, 193, 211, 304, 335],  
-                 resp_dir = None, 
+                 channels = [94, 131, 171, 193, 211, 304, 335],
+                 resp_dir = None,
                  delta_month = 12,
                  ):
-    
+
     '''
     Looks for and reads or computes response function closest in time to obs_date, returns response function
 
     Parameters:
     -------------------------
-    date:     str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15 
+    date:     str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15
     units:    str, units of response, currently only 'DN' is available
     lgtgmax, lgtgmin, lgtgstep: float, temperature span and delta
     abund:    str, abundance file to use, default "sun_coronal_2021_chianti"
     press:    float, pressure, default 3e15
     dx_pix, dy_pix: float, size of instrument pixels in arcsec, default 0.6.
     bands:    list, integers, bands to calculate default all AIA bands
-    resp_dir: string, optional, directory where response functions 
+    resp_dir: string, optional, directory where response functions
               are stored, default is RESPONSE environment variable.
     delta_month: int, optional max number of months away from obs_date before
               new response function is suggested, default 12 months.
@@ -119,7 +119,7 @@ def get_response(date = None,
     zarr_file,obs_date = find_response(date, units = units)
     if zarr_file is not None:
         print(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
-    # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
+    # it is not quite clear how to find the number of gains asked for... should be equal to the number of
     # lines/bands that the response function was constructed with
         response_all = xr.open_zarr(zarr_file).compute() #read_response(zarr_file).compute()
         if  np.array_equal(channels, response_all.channel):
@@ -128,7 +128,7 @@ def get_response(date = None,
         else:
            print("The channels of the response function do not match the requested channels. Creating a new response function.")
            need_new_response = True ##Treating this as a flag to create a new response function
-            
+
 
     else:
         need_new_response = True
@@ -152,12 +152,12 @@ def get_response(date = None,
                     response = ch.wavelength_response() * ch.plate_scale
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
+                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             else:
                 print(f'*** Computing {units} response function for {ch.channel.to_string()}'
                        ' date {obs_date.strftime("%b%Y")}')
                 try:
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
+                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
                 except:
                     print('*** Warning: correction table taken from local JSOC installation')
                     response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
@@ -169,20 +169,20 @@ def get_response(date = None,
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars('wavelength')
             line_list["resp_func"] = line_list.gofnt.sum(['logT']) * area.isel(band=0)
             line_list = line_list.drop_vars('band')
-            sort_index = np.argsort(-line_list.resp_func, 
+            sort_index = np.argsort(-line_list.resp_func,
                         axis=line_list.resp_func.get_axis_num('trans_index'))
             line_list_sort = line_list[dict(trans_index=sort_index)]
             line_list_sort_c = line_list_sort.isel(trans_index=np.arange(1000))
-            ''' Important, considering here 1000 lines!!!!!!! 
-                this creates the resposne function. Note that now we provide pressure 
-                (it can also be an array) or not sum lines, but 
+            ''' Important, considering here 1000 lines!!!!!!!
+                this creates the resposne function. Note that now we provide pressure
+                (it can also be an array) or not sum lines, but
                 if you have many it becomes a huge array!
-            ''' 
+            '''
             n = line_list_sort_c.sizes['trans_index']
             resp = create_resp_func(
                 line_list_sort_c,
                 vdop=vdop,
-                instr_width=0,  
+                instr_width=0,
                 effective_area=eff_xr.eff_area,
                 wvlr=[80, 800],
                 num_lines_keep=0,
@@ -241,7 +241,7 @@ def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     import glob
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
-    
+
     files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
     print(f'*** Loading {files} into vdem')
     vdem = xr.open_zarr(files).compute()
@@ -252,7 +252,7 @@ def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     #Synthesis AIA observations using the response function and VDEM
     muse_AIA = vdem_synthesis(vdem_cut.sum(dim=["vdop"]),
                               aia_resp,
-                              sum_over=["logT"]) 
+                              sum_over=["logT"])
     if swap_dims:
        muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
     return muse_AIA
@@ -271,7 +271,7 @@ def readFits(filename, ext=0):
   #print('reading -> {0}'.format(filename))
   dat = np.ascontiguousarray(io[ext].data, dtype='float32')
   io.close()
-  
+
   return dat
 # **************************************************
 
@@ -344,7 +344,7 @@ def wavelength_in_cube(data_file, target_wave_str):
     """
     try:
         wininfo = eispac.read_wininfo(data_file)
-        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):
             if wvl_min <= float(target_wave_str) <= wvl_max:
                 return True
         return False

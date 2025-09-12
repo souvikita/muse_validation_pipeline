@@ -157,7 +157,7 @@ if __name__ == "__main__":
                     * (iris_model_fit.amplitude_0 + iris_model_fit.amplitude_1)
                     * iris_model_fit.stddev_1.quantity
                     / np.mean(si_iv_1403.axis_world_coords("wl")[0][1:] - si_iv_1403.axis_world_coords("wl")[0][:-1])
-                )       
+                )
                 core_shift = ((iris_model_fit.mean_1.quantity.to(u.nm)) - si_iv_core) / si_iv_core * (constants.c.to(u.km / u.s))
                 sigma = (iris_model_fit.stddev_1.quantity.to(u.nm)) / si_iv_core * (constants.c.to(u.km / u.s))
 

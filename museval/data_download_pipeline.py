@@ -72,7 +72,7 @@ def files_to_retry(results, download_dir, min_bytes=1024):
 e_mail = 'sbose925@gmail.com'
 #Path where the EIS data would be stored if they don't already exist#
 eis_data_path = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/Plage_datasets/'
-obs_dates = ascii.read(eis_data_path+'Plage_observations_viggo.txt') #Plage_observations_viggo.txt is from Viggo 
+obs_dates = ascii.read(eis_data_path+'Plage_observations_viggo.txt') #Plage_observations_viggo.txt is from Viggo
 obs_dates.add_index("date_begin_EIS")
 
 for date in obs_dates["date_begin_EIS"]:
@@ -85,10 +85,10 @@ for date in obs_dates["date_begin_EIS"]:
     os.makedirs(obs_data_dir, exist_ok=True)
     print(f'    Searching for the EIS data for start - end time {date_begin_EIS} - {date_end_EIS}')
     results = Fido.search(a.Time(date_begin_EIS,date_end_EIS),
-                      a.Instrument('EIS'),                       
+                      a.Instrument('EIS'),
                       a.Physobs.intensity,
                       a.Source('Hinode'),
-                      a.Provider('NRL'),                      
+                      a.Provider('NRL'),
                       a.Level('1.5'),
                       FileType('HDF5 data') | FileType('HDF5 header'),
                      )
@@ -99,7 +99,7 @@ for date in obs_dates["date_begin_EIS"]:
     to_retry = files_to_retry(results, obs_data_dir, min_bytes=5*1024)
     if not to_retry:
         print(f'    All files already downloaded. Skipping download')
-        
+
     else:
         print(f'    Downloading {len(to_retry)} missing or incomplete files...')
         for row in to_retry:
@@ -140,7 +140,7 @@ for date in obs_dates["date_begin_EIS"]:
         files_AIA_full_disk = []
         for row in to_retry_aia:
             files_AIA_full_disk += Fido.fetch(row, path=obs_data_dir, downloader=dl)
-            
+
     # files_AIA_full_disk = Fido.fetch(query,path=eis_data_path+"SDO_EIS_cutouts_"+date_begin_EIS) #Will send 6/7 emails. You can ignore!
 
     ##------ Deconvolution of AIA images------##

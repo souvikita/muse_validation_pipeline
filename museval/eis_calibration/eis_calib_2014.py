@@ -96,7 +96,7 @@ def eis_ea_nrl(date, wave, short=False, long=False):
         ea_out = ea_out[0]
 
     return ea_out
-    
+
 def eis_ea(input_wave, short=False, long=False):
     if short:
         wave, ea = eis_effective_area_read(short=True)
@@ -170,7 +170,7 @@ def is_eis_wavelength(input_wave):
 def calib_2014(map):
     import sunpy.map
     import re
-    
+
     match = re.search(r'\d+\.\d+', map.meta['line_id'])
     wvl_value = float(match.group())
     calib_ratio = eis_ea(wvl_value)/eis_ea_nrl(map.date.value, wvl_value)

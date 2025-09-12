@@ -119,5 +119,4 @@ def main():
             save_hmi_c_outs(cutouts_data_path, cutouts_data_path, eis_data)
 
 if __name__ == "__main__":
-    main()  
-    
+    main()
