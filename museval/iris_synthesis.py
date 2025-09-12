@@ -33,6 +33,7 @@ def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
    'en'          'en024031_emer3.0_str'             'en024031_emer3.0/str'
    'qs'          'qs072100'                         'qs072100'
    'qsd2'        'qs072100_d2'                      'qs072100_d2'
+   'qsd4'        'qs072050'                          'qs072050_d4'
    'pl072100'    'pl072100'                         'pl072100'
    'pl072050'    'pl072050'                         'pl072050'
    'pl24'        'pl024031'                         'pl024031'
