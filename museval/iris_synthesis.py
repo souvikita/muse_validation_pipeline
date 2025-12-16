@@ -91,7 +91,9 @@ def make_iris_vdem(simulation, snap,
         bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
         np.save(bz_file, bz0, allow_pickle = True)
         print(f"Saved {bz_file}")
-    return vdem
+    else:
+        bz0 = get_vdem_bz(workdir, snap)
+    return vdem, bz0
 
 def get_vdem_bz(workdir, snap, z0 = -0.15):
        f = np.load(os.path.join(workdir,"vdem",f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy'))

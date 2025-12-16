@@ -142,25 +142,14 @@ def get_response(date = None,
                                            abundance = abund,
                                            wavelength_range = [80,850],
                                            )
-        for band in bands:
+        for band in channels:
             ch = Channel(band*u.angstrom)
-            if obs_date is None:
-                #print(f'*** Computing {units} response function for {ch.channel.to_string()}')
-                #response = ch.wavelength_response() * ch.plate_scale
-                print(f'*** Computing {units} response function for {ch.channel.to_string()}')
-                try:
-                    response = ch.wavelength_response() * ch.plate_scale
-                except:
-                    print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
-            else:
-                print(f'*** Computing {units} response function for {ch.channel.to_string()}'
-                       ' date {obs_date.strftime("%b%Y")}')
-                try:
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC')) 
-                except:
-                    print('*** Warning: correction table taken from local JSOC installation')
-                    response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
+            print(f'*** Computing {units} response function for {ch.channel.to_string()}'
+                   ' date {obs_date.strftime("%b%Y")}')
+            try:
+                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('SSW')) 
+            except:
+                print('*** Correction table taken from local JSOC installation')
                 response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             # else:
             # print(f'*** Computing {units} response function for {ch.channel.to_string()} date {obs_date.strftime("%b%Y")}')
@@ -191,7 +180,7 @@ def get_response(date = None,
                                            new_units="1e-27 cm5 DN / (Angstrom s)",
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
-                                           gain =18,
+                                           gain = 18,
                                            )
             ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
@@ -234,7 +223,65 @@ def get_response(date = None,
 
 # **************************************************
 
-def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
+def make_aia_vdem(simulation, snap,
+                   save = True, save_netcdf = False,
+                   save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
+                   compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
+                   code = 'Bifrost', 
+                   minltg = 4.4, maxltg = 7.0, dltg = 0.1,
+                   minuz = -200, maxuz = 200, duz = 50.,
+                   workdir = './',
+                   ):
+    import numpy as np
+    import museval as ms
+    ntg = int((maxltg-minltg)/dltg) + 1; print(f'Number of temperature bins {ntg:03d}')
+    lgtaxis = np.linspace(minltg,maxltg,ntg)
+    nuz = int((maxuz-minuz)/duz)+1 ; print(f'Number of velocity bins {nuz:03d}')
+    syn_dopaxis = np.linspace(minuz, maxuz, nuz)
+    snapname,workdir = ms.pick_sim(simulation, work = workdir)
+    vdem_dir = os.path.join(workdir,"vdem")
+    zarr_file = os.path.join(vdem_dir,f"vdem_{snap:03d}")
+    ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
+    if compute:
+ #       ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
+        vdem = ddbtr.from_hel2vdem(snap, syn_dopaxis, lgtaxis, axis=2, xyrotation=True)
+    else:
+        try:
+            vdem = xr.open_zarr(f'{zarr_file}.zarr')
+        except:
+            vdem = xr.open_dataset(f'{zarr_file}.nc')
+        save = False
+    if save:
+        try:
+            vdem.to_zarr(f'{zarr_file}.zarr', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.zarr'}")
+        except:
+            print(f"*** Warning: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            save_netcdf = True
+    if save_netcdf:
+            vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            print(f"Saved vdem to {f'{zarr_file}.nc'}")
+    if save_bz:
+        ddbtr.set_snap(snap)
+        iz0 = np.argmin(np.abs(ddbtr.z - z0))
+        bz = ddbtr.get_var('bz')
+        bz0 = bz[:,:,iz0]
+        bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+        np.save(bz_file, bz0, allow_pickle = True)
+        print(f"Saved {bz_file}")
+    else:
+        try:
+            bz0 = get_vdem_bz(workdir, snap)
+        except:
+            print(f'*** Cound not find any Bz file, returning None')
+            bz0 = None
+    return vdem, bz0
+
+
+# **************************************************
+
+def aia_synthesis(aia_resp, work_dir, vdem_path, 
+                  snap = None, swap_dims = True):
     import xarray as xr
     from muse.synthesis.synthesis import vdem_synthesis
     import os
@@ -242,7 +289,10 @@ def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     print(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
-    files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
+    if snap is None:
+        files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
+    else:
+        files = os.path.join('vdem',f'vdem_{snap:03d}.zarr')
     print(f'*** Loading {files} into vdem')
     vdem = xr.open_zarr(files).compute()
 
@@ -256,7 +306,6 @@ def aia_synthesis(aia_resp, work_dir, vdem_path, swap_dims = True):
     if swap_dims:
        muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
     return muse_AIA
-
 
 # **************************************************
 
@@ -273,6 +322,7 @@ def readFits(filename, ext=0):
   io.close()
   
   return dat
+
 # **************************************************
 
 def save_eis_iris_dates(urls, output_file, alternate_only=False):
@@ -353,5 +403,47 @@ def wavelength_in_cube(data_file, target_wave_str):
     except Exception as e:
         print(f"Error checking wavelengths in {data_file}: {e}")
         return False
+
+# **************************************************
+
+def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
+    """
+    Saves HMI cutouts corresponding to the EIS data.
+
+    Parameters:
+    -----------
+    magnetogram_path : str
+        Path to the directory containing HMI magnetogram data files.
+    output_dir : str
+        Directory where the output cutouts will be saved.
+    eis_data_list : list
+        List of EIS data arrays for which corresponding HMI cutouts are to be saved.
+        Need to use eispac.read_cube(downloaded_data_h5[0])
+    """
+    import os
+    from glob import glob
+    if not eis_data_list:
+        print("No EIS data found for:", magnetogram_path)
+        return
+    # Find the first matching magnetogram and AIA file
+    mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
+    aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
+    if not mag_files or not aia_files:
+        print(f"Missing HMI or AIA files in {magnetogram_path}")
+        return
+    hmi_map = sunpy.map.Map(mag_files[0])
+    aia_map_fdisk = sunpy.map.Map(aia_files[0])
+    out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs)
+    for eis_data in eis_data_list:
+        try:
+            meta = eis_data.meta
+            bottom_left = SkyCoord(meta['extent_arcsec'][0]*u.arcsec, meta['extent_arcsec'][2]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
+            top_right = SkyCoord(meta['extent_arcsec'][1]*u.arcsec, meta['extent_arcsec'][3]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
+            cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
+            output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
+            cutout_hmi_aligned.save(output_file)
+            print(f"Saved HMI cutout to {output_file}")
+        except Exception as e:
+            print(f"Error processing EIS data: {e}")
 
 # **************************************************
