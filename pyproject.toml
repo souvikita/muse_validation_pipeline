@@ -33,7 +33,8 @@ classifiers = [
 ]
 dependencies = [
   'sunpy>=6.1.0',
-  'numpy>=2.1.3',
+  'numpy',
+  'numpy<2.0; platform_machine == "x86_64" and platform_system == "darwin"',
   'astropy>=6.0.0',
   'matplotlib>=3.10.0',
   'xarray[parallel,io]>=2024.10.0',
@@ -43,6 +44,7 @@ dependencies = [
   'br_py @ git+https://gitlab.com/LMSAL_HUB/sims_hub/br_hub/br_py.git',
   'python-dateutil>=2.9.0',
   'periodictable',
+  'irispreppy',
 ]
 
 [project.urls]
