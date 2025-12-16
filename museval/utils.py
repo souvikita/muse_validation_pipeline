@@ -1,5 +1,22 @@
 import os
 import glob
+from helita.sim import bifrost as br
+from muse import logger
+import xarray as xr
+
+__all__ = [
+    "find_response",
+    "get_response",
+    "make_vdem",
+    "get_vdem_bz",
+    "aia_synthesis",
+    "readFits",
+    "save_eis_iris_dates",
+    "wavelength_in_cube",
+    "save_hmi_c_outs",
+    "pick_sim",
+]
+
 def find_response(obs_date, 
                   resp_dir = None, 
                   delta_month = 12,
@@ -53,12 +70,12 @@ def find_response(obs_date,
 
 # **************************************************
 
-def get_response(date = None, 
+def get_response(vdem, date = None, 
                  save_response = False,
                  units = 'DN',
-                 lgtgmax=7.0,lgtgmin=4.4, lgtgstep=0.1,
-                 uzmax = 200., uzmin = -200., uzstep = 50.,
-                 abund = "sun_photospheric_2021_asplund",
+                 lgtgmax=7.5,lgtgmin=4.5, lgtgstep=0.1,
+                 uzmax = 500., uzmin = -500., uzstep = 100.,
+                 abund =  "sun_photospheric_2021_asplund", # "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
                  channels = [94, 131, 171, 193, 211, 304, 335],  
@@ -66,6 +83,7 @@ def get_response(date = None,
                  delta_month = 12,
                  ):
     
+    from muse import logger
     '''
     Looks for and reads or computes response function closest in time to obs_date, returns response function
 
@@ -121,13 +139,20 @@ def get_response(date = None,
         print(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
-        response_all = xr.open_zarr(zarr_file).compute() #read_response(zarr_file).compute()
+        ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
+        lgtaxis = np.linspace(lgtgmin,lgtgmax,ntg)
+        logT = lgtaxis #np.arange(lgtgmin,lgtgmax, lgtgstep)
+        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
+        response_all = read_response(zarr_file,
+                                     logT=vdem.logT, 
+                                     vdop=vdem.vdop, vdopmethod="linear",
+                                     gain = np.ones((len(channels)))*18).compute()
         if  np.array_equal(channels, response_all.channel):
-            print("The channels of the response function match.")
+            logger.info("The channels of the response function match.")
             return response_all ##this is fine, no need to create a new response function
         else:
-           print("The channels of the response function do not match the requested channels. Creating a new response function.")
-           need_new_response = True ##Treating this as a flag to create a new response function
+            logger.info("The channels of the response function do not match the requested channels. Creating a new response function.")
+            need_new_response = True ##Treating this as a flag to create a new response function
             
 
     else:
@@ -144,12 +169,15 @@ def get_response(date = None,
                                            )
         for band in channels:
             ch = Channel(band*u.angstrom)
-            print(f'*** Computing {units} response function for {ch.channel.to_string()}'
-                   ' date {obs_date.strftime("%b%Y")}')
+            if date is None:
+                print(f'*** Computing {units} response function for {ch.channel.to_string()}')
+            else:
+                print(f'*** Computing {units} response function for {ch.channel.to_string()}'
+                  f' date {obs_date.strftime("%b%Y")}')
             try:
                 response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('SSW')) 
             except:
-                print('*** Correction table taken from local JSOC installation')
+                logger.info('*** Correction table taken from local JSOC installation')
                 response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars('wavelength')
@@ -160,7 +188,7 @@ def get_response(date = None,
             line_list_sort = line_list[dict(trans_index=sort_index)]
             line_list_sort_c = line_list_sort.isel(trans_index=np.arange(1000))
             ''' Important, considering here 1000 lines!!!!!!! 
-                this creates the resposne function. Note that now we provide pressure 
+                this creates the response function. Note that now we provide pressure 
                 (it can also be an array) or not sum lines, but 
                 if you have many it becomes a huge array!
             ''' 
@@ -177,7 +205,7 @@ def get_response(date = None,
                                            new_units="1e-27 cm5 DN / (Angstrom s)",
                                            wvl=np.array(resp.wavelength.data),
                                            dx_pix=dx_pix, dy_pix=dy_pix,
-                                           gain =18,
+                                           gain = 18,
                                            )
             ci_resp = convert_resp2muse_ciresp(resp_dn)
             line_list = line_list.drop_vars("resp_func")
@@ -211,68 +239,123 @@ def get_response(date = None,
     if save_response:
         try:
             response_all.to_zarr(f'{zarr_file}', mode = "w")
-            print(f"Saved response to {f'{zarr_file}'}")
+            logger.info(f"Saved response to {f'{zarr_file}'}")
         except:
-            print(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
+            logger.info(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
             response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
-            print(f"Saved response to {f'{zarr_file}.nc'}")
+            logger.info(f"Saved response to {f'{zarr_file}.nc'}")
+    response_all = read_response(zarr_file,
+                                 logT=vdem.logT, 
+                                 vdop=vdem.vdop, vdopmethod="linear",
+                                 gain = np.ones((len(channels)))*18).compute()
     return response_all
 
 # **************************************************
 
-def make_aia_vdem(simulation, snap,
-                   save = True, save_netcdf = False,
-                   save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
-                   compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
-                   code = 'Bifrost', 
-                   minltg = 4.4, maxltg = 7.0, dltg = 0.1,
-                   minuz = -200, maxuz = 200, duz = 50.,
-                   workdir = './',
-                   ):
+def make_vdem(snapname, snap, 
+                  code = 'Bifrost',
+                  workdir = './',
+                  save = False, save_netcdf = False,
+                  save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
+                  compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
+                  zarr_format = 2, opa_wvl = 171,
+                  telescope = 'muse',
+                  aia_vdop = [-400, 440, 40],
+                  muse_vdop = [-200, 220, 10],
+                  iris_vdop = [-150, 150, 5],
+                  ):
     import numpy as np
-    ntg = int((maxltg-minltg)/dltg) + 1; print(f'Number of temperature bins {ntg:03d}')
-    lgtaxis = np.linspace(minltg,maxltg,ntg)
-    nuz = int((maxuz-minuz)/duz)+1 ; print(f'Number of velocity bins {nuz:03d}')
-    syn_dopaxis = np.linspace(minuz, maxuz, nuz)
-    snapname,workdir = pick_sim(simulation, work = workdir)
+    from muse import logger
+    import PlasmaCalcs as pc
+    from PlasmaCalcs.tools import _xarray_save_prep
+    os.chdir(workdir)
     vdem_dir = os.path.join(workdir,"vdem")
-    zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}")
-    ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
-    if compute:
- #       ddbtr = btr.UVOTRTData(snapname, snap, fdir="./", _class=code.lower())
-        vdem = ddbtr.from_hel2vdem(snap, syn_dopaxis, lgtaxis, axis=2, xyrotation=True)
+    zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{snap:03d}")
+    dd = br.BifrostData(snapname,snap)
+    if compute:      
+        pc.DEFAULTS.ARRAY_MBYTES_MAX = 8.e+4
+        ec = pc.BifrostCalculator(snapname)
+        ec.component='z'
+        ec.snap = f'{snap:03d}'
+        ec.emiss_mode = 'notrac_noopa'
+        ec.vdem_mode = 'allinterp'
+        ec.units = 'cgs'
+        ec.tabin.extrapolate_type = "constant"
+        if telescope == 'muse':
+            ec.rcoords_vdop_kms = np.arange(muse_vdop[0], muse_vdop[1], muse_vdop[2])
+            ec.rcoords_logT = np.arange(4.5,7.1,0.1)
+            logger.info(f'*** Running with vdop/logT set to MUSE standard')
+        elif telescope == 'aia':
+            ec.rcoords_vdop_kms = np.arange(aia_vdop[0], aia_vdop[1], aia_vdop[2])
+            ec.rcoords_logT = np.arange(4.5,7.1,0.1)
+            logger.info(f'*** Running with vdop set to AIA standard')
+        elif telescope == 'iris':
+            ec.rcoords_vdop_kms = np.arange(iris_vdop[0], iris_vdop[1], iris_vdop[2])
+            ec.rcoords_logT = np.arange(4.2,6.5,0.1)
+            logger.info(f'*** Running with vdop set to IRIS standard')
+        else:
+            logger.info(f'*** No such telescope {telescope}. Returning')
+            return None, None
+        ec.rcoords_wavelength_A = opa_wvl # wavelength of opacity if 'opa' is chosen in mode
+        vdem = ec('vdem', chunks=dict(x=256), ncpu=12)      
+        vdem = _xarray_save_prep(vdem)
+        vdem0 = vdem[0]
+        vdem0.to_zarr("_pc_caches_zarr_saving.zarr", zarr_format = zarr_format, mode = "w")
+        vdem_temp0 = xr.open_zarr("_pc_caches_zarr_saving.zarr", zarr_format = zarr_format).compute()
+        vdem0 = xr.Dataset()
+        vdem0["vdem"] = vdem_temp0.vdem
+        vdem0.attrs = vdem[0].attrs
+        vdem0.x.attrs["long_name"] = "X"
+        vdem0.y.attrs["long_name"] = "Y"
+        vdem0.x.attrs["units"] = "cm"
+        vdem0.y.attrs["units"] = "cm"
+        vdem0.vdem.attrs["units"] = "1e27 / cm5"
+        vdem0.vdem.attrs["description"] = "DEM(T,vel,x,y)"
+        vdem0.vdop.attrs["long_name"] = r"v$_{Doppler}$"
+        vdem0.vdop.attrs["units"] = "km/s"
+        vdem0.logT.attrs["long_name"] = r"log$_{10}$(T)"
+        vdem0.logT.attrs["units"] = r"log$_{10}$ (K)"
+        vdem = vdem0.compute()
     else:
         try:
-            vdem = xr.open_zarr(f'{zarr_file}.zarr')
+            vdem = xr.open_zarr(f'{zarr_file}.zarr').compute()
         except:
             vdem = xr.open_dataset(f'{zarr_file}.nc')
         save = False
     if save:
         try:
-            vdem.to_zarr(f'{zarr_file}.zarr', mode = "w")
-            print(f"Saved vdem to {f'{zarr_file}.zarr'}")
+            vdem.to_zarr(f'{zarr_file}.zarr', mode = "w", zarr_format = zarr_format)
+            logger.info(f"Saved vdem to {f'{zarr_file}.zarr'}")
         except:
             print(f"*** Warning: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
             save_netcdf = True
     if save_netcdf:
             vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
-            print(f"Saved vdem to {f'{zarr_file}.nc'}")
+            logger.info(f"Saved vdem to {f'{zarr_file}.nc'}")
     if save_bz:
-        ddbtr.set_snap(snap)
-        iz0 = np.argmin(np.abs(ddbtr.z - z0))
-        bz = ddbtr.get_var('bz')
-        bz0 = bz[:,:,iz0]
+        dd.set_snap(snap)
+        iz0 = np.argmin(np.abs(dd.z - z0))
+        bz = dd.get_var('bz')
+        bz0 = bz[:,:,iz0]*dd.params['u_b'][0]
         bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
         np.save(bz_file, bz0, allow_pickle = True)
-        print(f"Saved {bz_file}")
+        logger.info(f"Saved {bz_file}")
     else:
         try:
-            bz0 = get_vdem_bz(workdir, snap)
+            logger.info(f'*** Attempting read of Bz0 from {vdem_dir} snap {snap}')
+            bz0 = get_vdem_bz(vdem_dir, snap)
         except:
-            print(f'*** Cound not find any Bz file, returning None')
+            logger.info(f'*** Cound not find any Bz file, returning None')
             bz0 = None
     return vdem, bz0
 
+# **************************************************
+
+def get_vdem_bz(bzdir, snap, z0 = -0.15):
+       import numpy as np
+       bzfile = os.path.join(bzdir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+       f = np.load(bzfile)
+       return f
 
 # **************************************************
 
@@ -293,12 +376,12 @@ def aia_synthesis(aia_resp, work_dir, vdem_path,
     vdem = xr.open_zarr(files).compute()
 
     # vdem_cut
-    vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
-    vdem_cut = vdem_cut.compute()
+    #vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
+    #vdem_cut = vdem_cut.compute()
     #Synthesis AIA observations using the response function and VDEM
-    muse_AIA = vdem_synthesis(vdem_cut.sum(dim=["vdop"]),
+    muse_AIA = vdem_synthesis(vdem,
                               aia_resp,
-                              sum_over=["logT"]) 
+                              sum_over=["logT","vdop"]) 
     if swap_dims:
        muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
     return muse_AIA
@@ -443,3 +526,112 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             print(f"Error processing EIS data: {e}")
 
 # **************************************************
+
+def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
+   """
+   Given short simulation name 'sim' cd to its directory and return snapname and workdir name.
+
+   If workdir or simulation not found, instructions for fixing code given.
+
+   Parameters
+   ----------
+   sim   : `str`
+      Short memnonic name for simulation.
+   work  : `str`
+      Root directory for simulations, default is viggoh's workdir in Oslo.
+
+   Returns
+   -------
+   snapname : `str`
+      Full snapname of simulation.
+   simdir : `str`
+      Full directory specification of simulation.
+   """
+   from astropy.io import ascii
+   from tabulate import tabulate
+   Simulations = """
+   'mnemonic'    'snapname'                         'simdir'
+   'en'          'en024031_emer3.0str'              'en024031_emer3.0/str'
+   'qs'          'qs072100'                         'qs072100'
+   'qs50'        'qs072050'                         'qs072050'
+   'qsd2'        'qs072100_d2'                      'qs072100_d2'
+   'qsd2n'       'qs072100_d2n'                     'qs072100_d2'
+   'qs50d2'      'qs072050'                         'qs072050_d2'
+   'qsd4'        'qs072100_d4'                      'qs072100_d4'
+   'qs50d4'      'qs072050'                         'qs072050_d4'
+   'pl072100'    'pl072100'                         'pl072100'
+   'pl072050'    'pl072050'                         'pl072050'
+   'pl24'        'pl024031'                         'pl024031'
+   'pl24hion'    'pl024031'                         'pl024031_hion'
+   'nw'          'nw072100'                         'nw072100_alt'
+   'sw'          'sw072050'                         'sw072050'
+   """
+   Simulations_Table = ascii.read(Simulations)
+   if not os.path.exists(work) or help==True:
+       print(f"*** Warning: directory {work} not found!!! Give an available workdir")
+       print("Available sims are:")
+       hdr = ['mnemonic','snapname','simdir']
+       print(tabulate(Simulations_Table, headers = hdr, tablefmt='grid'))
+       return None, None
+   Simulations_Table.add_index('mnemonic')
+   workdir = os.path.join(work,Simulations_Table.loc[sim]['simdir'])
+   os.chdir(workdir)        
+   print(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
+   return Simulations_Table.loc[sim]['snapname'],workdir
+
+# **************************************************
+
+def plot_aia_overview(vdem_sel, bz0, channels = [171, 193, 131, 211],
+                      snapname = None, snap = 0,
+                      code = 'Bifrost', save = False, len_scale = 'Mm', fontsize = 'x-large' ):
+    fig,ax = plt.subplots(2,3, figsize = (24,12))
+    arcsec2Mm = 0.729
+    extent = np.array([min(vdem_sel.x),max(vdem_sel.x),min(vdem_sel.y),max(vdem_sel.y)])/1.e8
+    if len_scale == 'arcsec':  
+        extent = np.array(extent_bf)/arcsec2Mm
+    for i,channel in enumerate(channels): 
+        if channel < 100: cmap = f'sdoaia{channel:02d}' 
+        else: cmap = f'sdoaia{channel:03d}'
+        flux = np.squeeze(muse_AIA.flux.sel(channel = channel).to_numpy())
+        im = ax[i//2][i%2].imshow(flux.T, 
+                                  norm = colors.PowerNorm(0.3), 
+                                  cmap = cmap, extent = extent)
+        ax[i//2][i%2].set_aspect('equal')
+        ax[i//2][i%2].set_xlabel(f'X [{len_scale}]', fontsize = fontsize)
+        ax[i//2][i%2].set_ylabel(f'Y [{len_scale}]', fontsize = fontsize)
+        ax[i//2][i%2].set_title(f'AIA {channel} Mean Intensity {muse_AIA.flux.sel(channel = channel).mean().to_numpy():0.2f} DN/s', fontsize = fontsize)
+        divider = make_axes_locatable(ax[i//2][i%2])
+        cax = divider.append_axes('right', size='3%', pad=0.1, axes_class=plt.Axes)
+        cbar = fig.colorbar(im, cax=cax, extend ='both')
+        cbar.ax.tick_params(direction='out')
+        cbar.ax.yaxis.set_ticks_position('right')
+        cbar.ax.yaxis.set_label_position('right')
+        cbar.ax.yaxis.tick_right()
+        cbar.set_label(rf'AIA Intensity [DN/s]', fontsize = fontsize)
+    #
+    im = ax[0][2].imshow(np.rot90(bz0, k=1), vmin = -500, vmax = 500, cmap=cm.Greys_r,extent = extent, origin = 'lower')
+    ax[0][2].set_xlabel(f'X [{len_scale}]', fontsize = fontsize)
+    ax[0][2].set_ylabel(f'Y [{len_scale}]', fontsize = fontsize)
+    ax[0][2].set_title(fr'Mean magnetic field $\sqrt{{B_z^2}}$ = {np.mean(np.sqrt(bz0**2)):0.2f} Gauss', fontsize = fontsize)
+    #
+    divider = make_axes_locatable(ax[0][2])
+    cax = divider.append_axes('right', size='3%', pad=0.1, axes_class=plt.Axes)
+    cbar = fig.colorbar(im, cax=cax, extend ='both')
+    cbar.ax.tick_params(direction='out')
+    cbar.ax.yaxis.set_ticks_position('right')
+    cbar.ax.yaxis.set_label_position('right')
+    cbar.ax.yaxis.tick_right()
+    cbar.set_label(rf'{code} Vertical Field [Gauss]', fontsize = fontsize)
+
+    ax[1][2].set_xlabel(r'$\log_{10}$DN/s',fontsize = fontsize)
+    ax[1][2].set_ylabel('Percentage',fontsize = fontsize)
+    ax[1][2].tick_params(labelsize='large')
+    for channel in channels:
+        ndata = len(np.ravel(muse_AIA.flux.sel(channel=channel).to_numpy()))
+        ax[1][2].hist(np.log10(np.ravel(muse_AIA.flux.sel(channel=channel).to_numpy())),
+                               bins=30, histtype='step', label=f'AIA {channel:03d}', weights = np.ones(ndata)/ndata)
+    ax[1][2].legend(loc='upper right')
+    ax[1][2].set_xlim([0.,4.])
+    ax[1][2].set_title(f'{code} simulation: {snapname} snap: {snap:03d}')
+    if save:
+        plt.savefig(os.path.join('./figs',f"{snapname}_{snap}_AIA_overview.png"))

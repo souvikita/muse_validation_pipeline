@@ -6,51 +6,6 @@ from muse.synthesis.synthesis import vdem_synthesis
 from irispreppy.radcal import iris_get_response as igr
 import datetime as dt
 
-def pick_sim(sim,work='/mn/stornext/d19/RoCS/viggoh/3d/'):
-   """
-   Given short simulation name 'sim' cd to its directory and return snapname and workdir name.
-
-   If workdir or simulation not found, instructions for fixing code given.
-
-   Parameters
-   ----------
-   sim   : `str`
-      Short memnonic name for simulation.
-   work  : `str`
-      Root directory for simulations, default is viggoh's workdir in Oslo.
-
-   Returns
-   -------
-   snapname : `str`
-      Full snapname of simulation.
-   simdir : `str`
-      Full directory specification of simulation.
-   """
-   from astropy.io import ascii
-   from tabulate import tabulate
-   Simulations = """
-   'mnemonic'    'snapname'                         'simdir'
-   'en'          'en024031_emer3.0_str'             'en024031_emer3.0/str'
-   'qs'          'qs072100'                         'qs072100'
-   'qsd2'        'qs072100_d2'                      'qs072100_d2'
-   'qsd4'        'qs072050'                          'qs072050_d4'
-   'pl072100'    'pl072100'                         'pl072100'
-   'pl072050'    'pl072050'                         'pl072050'
-   'pl24'        'pl024031'                         'pl024031'
-   'pl24hion'    'pl024031'                         'pl024031_hion'
-   """
-   Simulations_Table = ascii.read(Simulations)
-   if not os.path.exists(work):
-       print(f"*** Warning: directory {work} not found!!! Give an available workdir")
-       print("Available sims are:")
-       hdr = ['mnemonic','snapname','simdir']
-       print(tabulate(Simulations_Table, headers = hdr, tablefmt='grid'))
-       return -1,
-   Simulations_Table.add_index('mnemonic')
-   workdir = os.path.join(work,Simulations_Table.loc[sim]['simdir'])
-   os.chdir(workdir)        
-   print(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
-   return Simulations_Table.loc[sim]['snapname'],workdir
 
 def make_iris_vdem(simulation, snap,
                    save = True, 
@@ -65,7 +20,7 @@ def make_iris_vdem(simulation, snap,
     lgtaxis = np.linspace(minltg,maxltg,ntg)
     nuz = int((maxuz-minuz)/duz)+1 ; print(f'Number of velocity bins {nuz:03d}')
     syn_dopaxis = np.linspace(minuz, maxuz, nuz)
-    snapname,workdir = pick_sim(simulation, work = workdir)
+    snapname,workdir = ms.pick_sim(simulation, work = workdir)
     vdem_dir = os.path.join(workdir,"vdem")
     zarr_file = os.path.join(vdem_dir,f"iris_vdem_{snap:03d}")
     if compute:
@@ -93,10 +48,6 @@ def make_iris_vdem(simulation, snap,
         np.save(bz_file, bz0, allow_pickle = True)
         print(f"Saved {bz_file}")
     return vdem
-
-def get_vdem_bz(workdir, snap, z0 = -0.15):
-       f = np.load(os.path.join(workdir,"vdem",f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy'))
-       return f
 
 def make_line_response(ionstr = ["si_4"],
                        wvlr = np.array([1393.75,1393.76]),
