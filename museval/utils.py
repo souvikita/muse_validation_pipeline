@@ -70,7 +70,7 @@ def find_response(obs_date,
         if len(avail) > 0:
             iresp = np.argmin(np.abs(np.array(avail)-comp))
             if verbose:
-                print(f'*** Nearest response function is {np.abs(avail[iresp]-comp)} months from obs_date ')
+                logger.info(f'*** Nearest response function is {np.abs(avail[iresp]-comp)} months from obs_date ')
             if np.abs(avail[iresp]-comp) <= delta_month:
                 zarr_file = resp_files[iresp]
     return zarr_file, obs_date
@@ -283,7 +283,6 @@ def make_vdem(snapname, snap,
     os.chdir(workdir)
     vdem_dir = os.path.join(workdir,"vdem")
     zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{snap:03d}")
-    dd = br.BifrostData(snapname,snap)
     if compute:      
         pc.DEFAULTS.ARRAY_MBYTES_MAX = 8.e+4
         ec = pc.BifrostCalculator(snapname)
@@ -303,7 +302,7 @@ def make_vdem(snapname, snap,
             logger.info(f'*** Running with vdop set to AIA standard')
         elif telescope == 'iris':
             ec.rcoords_vdop_kms = np.arange(iris_vdop[0], iris_vdop[1], iris_vdop[2])
-            ec.rcoords_logT = np.arange(4.2,6.5,0.1)
+            ec.rcoords_logT = np.arange(4.2,6.1,0.1)
             logger.info(f'*** Running with vdop set to IRIS standard')
         else:
             logger.info(f'*** No such telescope {telescope}. Returning')
@@ -339,12 +338,13 @@ def make_vdem(snapname, snap,
             vdem.to_zarr(f'{zarr_file}.zarr', mode = "w", zarr_format = zarr_format)
             logger.info(f"Saved vdem to {f'{zarr_file}.zarr'}")
         except:
-            print(f"*** Warning: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
+            logger.warning(f"*** Warning: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
             save_netcdf = True
     if save_netcdf:
             vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
             logger.info(f"Saved vdem to {f'{zarr_file}.nc'}")
     if save_bz:
+        dd = br.BifrostData(snapname,snap)
         dd.set_snap(snap)
         iz0 = np.argmin(np.abs(dd.z - z0))
         bz = dd.get_var('bz')
@@ -377,14 +377,14 @@ def aia_synthesis(aia_resp, work_dir, vdem_path,
     from muse.synthesis.synthesis import vdem_synthesis
     import os
     import glob
-    print(f"*** Work directory is {work_dir}")
+    logger.info(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
     
     if snap is None:
         files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
     else:
         files = os.path.join('vdem',f'vdem_{snap:03d}.zarr')
-    print(f'*** Loading {files} into vdem')
+    logger.info(f'*** Loading {files} into vdem')
     vdem = xr.open_zarr(files).compute()
 
     # vdem_cut
@@ -434,14 +434,14 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
     all_lines = set()
 
     for url in urls:
-        print(f"Fetching: {url}")
+        logger.info(f"Fetching: {url}")
         try:
             response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            print(f"Number of events in JSON: {len(data.get('Events', []))}")
+            logger.info(f"Number of events in JSON: {len(data.get('Events', []))}")
         except Exception as e:
-            print(f"Failed to fetch {url}: {e}")
+            logger.error(f"Failed to fetch {url}: {e}")
             continue
 
         for event in data.get("Events", []):
@@ -467,7 +467,7 @@ def save_eis_iris_dates(urls, output_file, alternate_only=False):
         for line in all_lines:
             f.write(line + "\n")
 
-    print(f"Saved {len(all_lines)} date ranges to {output_file}")
+    logger.info(f"Saved {len(all_lines)} date ranges to {output_file}")
 
 # **************************************************
 
@@ -492,7 +492,7 @@ def wavelength_in_cube(data_file, target_wave_str):
         # available_lines = [win.line_id for win in wininfo]
         # return any(target_wave_str in line for line in available_lines)
     except Exception as e:
-        print(f"Error checking wavelengths in {data_file}: {e}")
+        logger.error(f"Error checking wavelengths in {data_file}: {e}")
         return False
 
 # **************************************************
@@ -514,13 +514,13 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
     import os
     from glob import glob
     if not eis_data_list:
-        print("No EIS data found for:", magnetogram_path)
+        logger.error("No EIS data found for:", magnetogram_path)
         return
     # Find the first matching magnetogram and AIA file
     mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
     aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
     if not mag_files or not aia_files:
-        print(f"Missing HMI or AIA files in {magnetogram_path}")
+        logger.error(f"Missing HMI or AIA files in {magnetogram_path}")
         return
     hmi_map = sunpy.map.Map(mag_files[0])
     aia_map_fdisk = sunpy.map.Map(aia_files[0])
@@ -533,9 +533,9 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
             output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
             cutout_hmi_aligned.save(output_file)
-            print(f"Saved HMI cutout to {output_file}")
+            logger.info(f"Saved HMI cutout to {output_file}")
         except Exception as e:
-            print(f"Error processing EIS data: {e}")
+            logger.error(f"Error processing EIS data: {e}")
 
 # **************************************************
 
@@ -556,13 +556,13 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
     import os
     from glob import glob
     if not eis_data_list:
-        print("No EIS data found for:", magnetogram_path)
+        logger.error("No EIS data found for:", magnetogram_path)
         return
     # Find the first matching magnetogram and AIA file
     mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
     aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
     if not mag_files or not aia_files:
-        print(f"Missing HMI or AIA files in {magnetogram_path}")
+        logger.error(f"Missing HMI or AIA files in {magnetogram_path}")
         return
     hmi_map = sunpy.map.Map(mag_files[0])
     aia_map_fdisk = sunpy.map.Map(aia_files[0])
@@ -575,9 +575,9 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
             output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
             cutout_hmi_aligned.save(output_file)
-            print(f"Saved HMI cutout to {output_file}")
+            logger.info(f"Saved HMI cutout to {output_file}")
         except Exception as e:
-            print(f"Error processing EIS data: {e}")
+            logger.error(f"Error processing EIS data: {e}")
 
 # **************************************************
 
@@ -598,13 +598,13 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
     import os
     from glob import glob
     if not eis_data_list:
-        print("No EIS data found for:", magnetogram_path)
+        logger.error("No EIS data found for:", magnetogram_path)
         return
     # Find the first matching magnetogram and AIA file
     mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
     aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
     if not mag_files or not aia_files:
-        print(f"Missing HMI or AIA files in {magnetogram_path}")
+        logger.error(f"Missing HMI or AIA files in {magnetogram_path}")
         return
     hmi_map = sunpy.map.Map(mag_files[0])
     aia_map_fdisk = sunpy.map.Map(aia_files[0])
@@ -617,9 +617,9 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
             output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
             cutout_hmi_aligned.save(output_file)
-            print(f"Saved HMI cutout to {output_file}")
+            logger.info(f"Saved HMI cutout to {output_file}")
         except Exception as e:
-            print(f"Error processing EIS data: {e}")
+            logger.error(f"Error processing EIS data: {e}")
 
 # **************************************************
 
@@ -668,8 +668,7 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    """
    Simulations_Table = ascii.read(Simulations)
    if not os.path.exists(work) or help==True:
-       if not os.path.exists(work):
-           print(f"*** Warning: directory {work} not found!!! Give an available workdir")
+       logger.warning(f"*** Warning: directory {work} not found!!! Give an available workdir")
        print("Available sims are:")
        hdr = ['mnemonic','snapname','simdir']
        print(tabulate(Simulations_Table, headers = hdr, tablefmt='grid'))
@@ -677,7 +676,7 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    Simulations_Table.add_index('mnemonic')
    workdir = os.path.join(work,Simulations_Table.loc[sim]['simdir'])
    os.chdir(workdir)        
-   print(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
+   logger.info(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
    return Simulations_Table.loc[sim]['snapname'],workdir
 
 # **************************************************
