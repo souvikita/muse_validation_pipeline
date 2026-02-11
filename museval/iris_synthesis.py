@@ -57,6 +57,7 @@ def make_line_response(ionstr = ["si_4"],
                        lgtgmin     = 4.0, lgtgmax     = 6.0, lgtgstep    = 0.1,                  # in log10
                        uzmax       = 200.0, uzmin       = -200.0, uzstep      = 5.0,             # km/s
                        instr_width = 0.0, # km/s
+                       iris_file = None,
                        ):
     import astropy.units as u
     from muse.instr.utils import create_eff_area_xarray
@@ -66,8 +67,6 @@ def make_line_response(ionstr = ["si_4"],
     logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
     pressure = xr.DataArray(np.array([3e15]), dims= 'pressure')
     vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
-    # We assume no instrumental broadening. 
-    effective_area_unity = create_eff_area_xarray(np.ones(2), [1393.,1394.5], [wvlr[0]])
     # finds in Chiantypy the line list with the properties listed above
     line_list = chianti_gofnt_linelist(
         temperature = 10**logT,
@@ -81,7 +80,12 @@ def make_line_response(ionstr = ["si_4"],
     wvlmin=line_list.wvl.min().values - 0.9
     wvlmax=line_list.wvl.max().values + 0.9
     n = line_list.sizes['trans_index']
-
+    # We assume no instrumental broadening.
+    if iris_file == None:
+        eff_area = np.ones(2)
+    else:
+        eff_area = iris_eff_area([wvlmin, wvlmax], iris_file = iris_file)
+    effective_area_unity = create_eff_area_xarray(eff_area, [wvlmin,wvlmax], [wvlr[0]])
     resp = create_resp_func(
         line_list,
         vdop = vdop,
@@ -366,7 +370,8 @@ def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H
     """
     from irispreppy.radcal import iris_get_response as igr
     from weno4 import weno4
-    from astropy.io import ascii
+    from astropy.io import fits
+    import astropy.units as u
     if iris_file is not None:
         hdr = fits.getheader(iris_file)
         if 'STARTOBS' not in hdr:
