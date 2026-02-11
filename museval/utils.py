@@ -1,5 +1,9 @@
 import os
 import glob
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import cm, colors
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from helita.sim import bifrost as br
 from muse import logger
 import xarray as xr
@@ -15,6 +19,9 @@ __all__ = [
     "wavelength_in_cube",
     "save_hmi_c_outs",
     "pick_sim",
+    "plot_aia_overview",
+    "iny_smear",
+    "gauss_kernel",
 ]
 
 def find_response(obs_date, 
@@ -79,7 +86,9 @@ def get_response(vdem, date = None,
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
                  channels = [94, 131, 171, 193, 211, 304, 335],  
-                 resp_dir = None, 
+                 resp_dir = None,
+                 wavelength_range = [80,850],
+                 minimum_abundance = 1.e-20, 
                  delta_month = 12,
                  ):
     
@@ -134,9 +143,9 @@ def get_response(vdem, date = None,
 #        print("*** You should set use_QS_bands to true unless you know what you are doing!!!")
 #        sys.exit()
 #
-    zarr_file,obs_date = find_response(date, units = units)
+    zarr_file,obs_date = find_response(date, units = units, delta_month = delta_month)
     if zarr_file is not None:
-        print(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
+        logger.info(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
         ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
@@ -161,24 +170,27 @@ def get_response(vdem, date = None,
         logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
         vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
-        print(f"*** Constructing line list")
+        logger.info(f"*** Constructing line list using pressure = {press:0.1e}, abundance {abund}")
         line_list = chianti_gofnt_linelist(temperature = 10**logT,
                                            pressure=pressure,
                                            abundance = abund,
-                                           wavelength_range = [80,850],
-                                           )
+                                           wavelength_range = wavelength_range,
+                                           minimum_abundance = minimum_abundance,
+                                           ) 
+        try:
+            correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
+            logger.info('*** Correction table taken from local JSOC installation')
+        except:
+            logger.info('*** Correction table taken from local SSW installation')
+            correction_table = aiapy.calibrate.util.get_correction_table('SSW')
         for band in channels:
             ch = Channel(band*u.angstrom)
             if date is None:
-                print(f'*** Computing {units} response function for {ch.channel.to_string()}')
+                logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}')
             else:
-                print(f'*** Computing {units} response function for {ch.channel.to_string()}'
+                logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}'
                   f' date {obs_date.strftime("%b%Y")}')
-            try:
-                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('SSW')) 
-            except:
-                logger.info('*** Correction table taken from local JSOC installation')
-                response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
+            response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table) 
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars('wavelength')
             line_list["resp_func"] = line_list.gofnt.sum(['logT']) * area.isel(band=0)
@@ -198,7 +210,7 @@ def get_response(vdem, date = None,
                 vdop=vdop,
                 instr_width=0,  
                 effective_area=eff_xr.eff_area,
-                wvlr=[80, 800],
+                wvlr=wavelength_range,
                 num_lines_keep=0,
                 )
             resp_dn = transform_resp_units(resp,
@@ -260,9 +272,9 @@ def make_vdem(snapname, snap,
                   compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
                   zarr_format = 2, opa_wvl = 171,
                   telescope = 'muse',
-                  aia_vdop = [-400, 440, 40],
-                  muse_vdop = [-200, 220, 10],
-                  iris_vdop = [-150, 150, 5],
+                  aia_vdop = [-500, 600, 100],
+                  muse_vdop = [-200, 210, 10],
+                  iris_vdop = [-100, 100, 2],
                   ):
     import numpy as np
     from muse import logger
@@ -640,6 +652,8 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    'qs50'        'qs072050'                         'qs072050'
    'qsd2'        'qs072100_d2'                      'qs072100_d2'
    'qsd2n'       'qs072100_d2n'                     'qs072100_d2'
+   'qsx2n'       'qs072100_x2n'                     'qs072100_x2'
+   'qsx2s'       'qs072100_x2s'                     'qs072100_x2'
    'qs50d2'      'qs072050'                         'qs072050_d2'
    'qsd4'        'qs072100_d4'                      'qs072100_d4'
    'qs50d4'      'qs072050'                         'qs072050_d4'
@@ -649,10 +663,13 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    'pl24hion'    'pl024031'                         'pl024031_hion'
    'nw'          'nw072100'                         'nw072100_alt'
    'sw'          'sw072050'                         'sw072050'
+   'cbp'         'mn4_np3d_10g_8mm'                 'np3D_10G_8Mm'
+   'cbpx2'       'mn4_np3d_10g_8mm_2res'            'np3D_10G_8Mm_2xres'
    """
    Simulations_Table = ascii.read(Simulations)
    if not os.path.exists(work) or help==True:
-       print(f"*** Warning: directory {work} not found!!! Give an available workdir")
+       if not os.path.exists(work):
+           print(f"*** Warning: directory {work} not found!!! Give an available workdir")
        print("Available sims are:")
        hdr = ['mnemonic','snapname','simdir']
        print(tabulate(Simulations_Table, headers = hdr, tablefmt='grid'))
@@ -665,12 +682,12 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
 
 # **************************************************
 
-def plot_aia_overview(vdem_sel, bz0, channels = [171, 193, 131, 211],
+def plot_aia_overview(muse_AIA, bz0, channels = [171, 193, 131, 211],
                       snapname = None, snap = 0,
                       code = 'Bifrost', save = False, len_scale = 'Mm', fontsize = 'x-large' ):
     fig,ax = plt.subplots(2,3, figsize = (24,12))
     arcsec2Mm = 0.729
-    extent = np.array([min(vdem_sel.x),max(vdem_sel.x),min(vdem_sel.y),max(vdem_sel.y)])/1.e8
+    extent = np.array([min(muse_AIA.x),max(muse_AIA.x),min(muse_AIA.y),max(muse_AIA.y)])/1.e8
     if len_scale == 'arcsec':  
         extent = np.array(extent_bf)/arcsec2Mm
     for i,channel in enumerate(channels): 
@@ -719,3 +736,29 @@ def plot_aia_overview(vdem_sel, bz0, channels = [171, 193, 131, 211],
     ax[1][2].set_title(f'{code} simulation: {snapname} snap: {snap:03d}')
     if save:
         plt.savefig(os.path.join('./figs',f"{snapname}_{snap}_AIA_overview.png"))
+
+
+# **************************************************
+
+def iny_smear(iny, wvl, dx = 0.1, resolution = 0.33):
+    from scipy import signal
+    fwhm = 2*np.sqrt(2*np.log(2))
+    sptbin = resolution*0.729/dx/fwhm
+    gauss_kern = gauss_kernel(size=int(10*sptbin), sigma=sptbin)
+    for iwvl in range(np.shape(wvl)[0]):
+        iny[:,:,iwvl] = signal.convolve2d(iny[:,:,iwvl], 
+                                          gauss_kern,
+                                          mode='same',
+                                          boundary='wrap')
+    return iny
+
+# **************************************************
+
+def gauss_kernel(size=3,sigma=1):
+    center=(int)(size/2)
+    kernel=np.zeros((size,size))
+    for i in range(size):
+       for j in range(size):
+          diff_sq = (i-center)**2+(j-center)**2
+          kernel[i,j]=np.exp(-diff_sq/(2*sigma**2))
+    return kernel/np.sum(kernel)
