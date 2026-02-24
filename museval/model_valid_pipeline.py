@@ -54,6 +54,8 @@ from muse.instr.utils import create_resp_func, create_resp_line_list, create_res
 
 import eispac
 
+from museval.utils import get_response
+
 import warnings
 warnings.filterwarnings('ignore',category=UserWarning)
 import calendar # to convert the month number to the month name
