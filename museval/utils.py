@@ -287,8 +287,8 @@ def get_response(vdem, date = None,
             logger.info(f"Saved response to {f'{zarr_file}.nc'}")
     response_all = read_response(zarr_file,
                                  logT=vdem.logT, 
-                                 vdop=vdem.vdop, vdopmethod="linear",
-                                 gain = np.ones((len(channels)))*18).compute()
+                                 vdop=vdop, vdopmethod="linear",
+                                 gain = np.ones((len(chrange)))*18).compute()
     return reponse_all_DN
 
 # **************************************************
