@@ -206,7 +206,7 @@ def get_response(vdem, date = None,
             
             CI_resp = create_resp_func(
                     line_list_eff,
-                    vdop=vdop,
+                    vdop=vdop.value,
                     instr_width=0.0,
                     effective_area=eff_xr.eff_area,
                     wvlr=[eff_xr.wavelength.min().values,eff_xr.wavelength.max().values],
