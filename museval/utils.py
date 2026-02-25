@@ -153,7 +153,7 @@ def get_response(vdem, date = None,
         vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         response_all_DN = read_response(zarr_file,
                                      logT=vdem.logT, 
-                                     vdop=vdop, vdopmethod="linear",
+                                     vdop=vdop.value, vdopmethod="linear",
                                      gain = np.ones((len(chrange)))*18).compute() # note the use of the SAME VDOP!
         if  np.array_equal(chrange, response_all_DN.channel):
             logger.info("The channels of the response function match.")
@@ -177,12 +177,12 @@ def get_response(vdem, date = None,
                                            wavelength_range = wavelength_range,
                                            minimum_abundance = minimum_abundance,
                                            ) 
-        try:
-            correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
-            logger.info('*** Correction table taken from local JSOC installation')
-        except:
-            logger.info('*** Correction table taken from local SSW installation')
-            correction_table = aiapy.calibrate.util.get_correction_table('SSW')
+        # try:
+        #     correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
+        #     logger.info('*** Correction table taken from local JSOC installation')
+        # except:
+        #     logger.info('*** Correction table taken from local SSW installation')
+        #     correction_table = aiapy.calibrate.util.get_correction_table('SSW')
         for ii_ch, ich in enumerate(chrange):
             ch = Channel(ich*u.angstrom)
             if date is None:
@@ -190,7 +190,7 @@ def get_response(vdem, date = None,
             else:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}'
                   f' date {obs_date.strftime("%b%Y")}')
-            response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table)
+            response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
             # Convert to xarray format for MUSE Python library format.  
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars("wavelength")
