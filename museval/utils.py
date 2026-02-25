@@ -89,13 +89,23 @@ def get_response(vdem, date = None,
                 #  channels = [94, 131, 171, 193, 211, 304, 335],  
                  resp_dir = None,
                  wavelength_range = [80,850],
-                 minimum_abundance = 1.e-15, 
+                 minimum_abundance = 1e-15, 
                  delta_month = 12,
                  n_cont_top = 150,
                  ):
     
     from muse import logger
     import os
+    import aiapy
+    import numpy as np
+    import xarray as xr
+    import astropy.constants as const
+    import astropy.units as u
+    from aiapy.response import Channel
+    from muse.utils.utils import read_response
+    from muse.instr.utils import create_resp_func, convert_resp2muse_ciresp, create_eff_area_xarray, chianti_gofnt_linelist
+    from muse.synthesis.synthesis import vdem_synthesis, vdem_syn_join_slits_wvl, ph2dn, ph2e, transform_resp_units
+
     '''
     Looks for and reads or computes response function closest in time to obs_date, returns response function
 
@@ -114,34 +124,13 @@ def get_response(vdem, date = None,
               new response function is suggested, default 12 months.
     units: str, optional, response function intensity units, default DN.
     verbose: bool, optional, be verbose, default True
+
     '''
     if resp_dir is None:
         if 'RESPONSE' not in os.environ:
             raise EnvironmentError("The environment variable 'RESPONSE' is not set. Set it to the directory where response functions are stored.")
         resp_dir = os.environ['RESPONSE']
-    import aiapy
-    import numpy as np
-    import xarray as xr
-    import astropy.constants as const
-    import astropy.units as u
-    from aiapy.response import Channel
-    from muse.utils.utils import read_response
-    from muse.instr.utils import create_resp_func, convert_resp2muse_ciresp, create_eff_area_xarray, chianti_gofnt_linelist
-    from muse.synthesis.synthesis import vdem_synthesis, vdem_syn_join_slits_wvl, ph2dn, ph2e, transform_resp_units
-#  Temperature limits, abundance, pressure, and pixel size
-#  NB note that available abundance files depend on Chianti version!
-#  Other possible abundance files to look for...
-#  abund = "sun_photospheric_2011_caffau"
-#  abund = "sun_photospheric_2021_asplund"
-#    if use_QS_bands:
-#        aia_goes_lines.remove('AIA 304')
-#        lines = aia_goes_lines[0:6]
-#        bands = [int(s) for s in " ".join(lines).split("AIA ")[1:7]]
-# bands = list(map(int," ".join(lines.split("AIA ")[1:5]))
-#    else:
-#        print("*** You should set use_QS_bands to true unless you know what you are doing!!!")
-#        sys.exit()
-#
+
     zarr_file,obs_date = find_response(date, units = units, delta_month = delta_month)
     if zarr_file is not None:
         logger.info(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
@@ -170,6 +159,7 @@ def get_response(vdem, date = None,
         vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
         logger.info(f"*** Constructing line list using pressure = {press:0.1e}, abundance {abund}")
+
         line_list = chianti_gofnt_linelist(ionList = None,
                                            temperature = 10**logT,
                                            pressure=pressure,
@@ -177,20 +167,25 @@ def get_response(vdem, date = None,
                                            wavelength_range = wavelength_range,
                                            minimum_abundance = minimum_abundance,
                                            ) 
-        # try:
-        #     correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
-        #     logger.info('*** Correction table taken from local JSOC installation')
-        # except:
-        #     logger.info('*** Correction table taken from local SSW installation')
-        #     correction_table = aiapy.calibrate.util.get_correction_table('SSW')
+        try:
+            correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
+            logger.info('*** Correction table taken from local JSOC installation')
+        except:
+            logger.info('*** Correction table taken from local SSW installation')
+            correction_table = aiapy.calibrate.util.get_correction_table('SSW')
+
         for ii_ch, ich in enumerate(chrange):
             ch = Channel(ich*u.angstrom)
+            # eff_area = ch.effective_area
             if date is None:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}')
             else:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}'
                   f' date {obs_date.strftime("%b%Y")}')
-            response = ch.wavelength_response(obstime = obs_date, correction_table = aiapy.calibrate.util.get_correction_table('JSOC'))
+                # time_corr = aiapy.calibrate.degradation(ch.channel, obs_date, correction_table=correction_table)
+                # eff_area = eff_area * time_corr
+            response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table)
+
             # Convert to xarray format for MUSE Python library format.  
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars("wavelength")
@@ -198,7 +193,7 @@ def get_response(vdem, date = None,
             
             line_list_eff = line_list.sortby(line_list.resp_func).copy(deep=True)
             # We select the 50 strongest lines within each channel
-            sort_index = np.argsort(-line_list.resp_func, 
+            sort_index = np.argsort(-line_list_eff.resp_func, 
                         axis=line_list.resp_func.get_axis_num('trans_index'))
             line_list_eff = line_list_eff[{"trans_index": sort_index}]
             # We may want to control this with EM instead of top lines
@@ -206,7 +201,7 @@ def get_response(vdem, date = None,
             
             CI_resp = create_resp_func(
                     line_list_eff,
-                    vdop=vdop.value,
+                    vdop=vdop,
                     instr_width=0.0,
                     effective_area=eff_xr.eff_area,
                     wvlr=[eff_xr.wavelength.min().values,eff_xr.wavelength.max().values],
@@ -218,7 +213,7 @@ def get_response(vdem, date = None,
                     new_units="1e-27 cm5 DN / (Angstrom s)",
                     wvl=np.array(CI_resp.wavelength.data),
                     dx_pix=dx_pix,
-                    dy_pix=dx_pix,
+                    dy_pix=dy_pix,
                     gain=18,
                 )
             CI_resp_ph = CI_resp_ph.drop_vars("band")
@@ -233,38 +228,6 @@ def get_response(vdem, date = None,
         reponse_all_DN = reponse_all_DN.assign_coords(channel=("channel", chrange))   
         save_response = True
            
-        #     n = line_list_sort_c.sizes['trans_index']
-        #     resp = create_resp_func(
-        #         line_list_sort_c,
-        #         vdop=vdop,
-        #         instr_width=0,  
-        #         effective_area=eff_xr.eff_area,
-        #         wvlr=wavelength_range,
-        #         num_lines_keep=0,
-        #         )
-        #     resp_dn = transform_resp_units(resp,
-        #                                    new_units="1e-27 cm5 DN / (Angstrom s)",
-        #                                    wvl=np.array(resp.wavelength.data),
-        #                                    dx_pix=dx_pix, dy_pix=dy_pix,
-        #                                    gain = 18,
-        #                                    )
-        #     ci_resp = convert_resp2muse_ciresp(resp_dn)
-        #     line_list = line_list.drop_vars("resp_func")
-        #     ci_resp = ci_resp.drop_vars("band")
-        #     if band == channels[0]:
-        #         response_all = ci_resp
-        #     else:
-        #         response_all = xr.concat([response_all, ci_resp], dim="channel")
-        # response_all["SG_resp"] = response_all.SG_resp.fillna(0)
-        # response_all = response_all.assign_coords(channel = ("channel", channels))
-        # if "band" in response_all.SG_resp.dims:
-        #     response_all["SG_resp"] = response_all["SG_resp"].squeeze("band", drop=True)
-        #     if "band" in response_all.dims:
-        #         response_all = response_all.drop_dims("band")
-        # response_all = response_all.compute()
-        # save_response = True
-#
-#    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
     if obs_date is None:
         response_all_DN = reponse_all_DN.assign_attrs(date = "None")
     else:
