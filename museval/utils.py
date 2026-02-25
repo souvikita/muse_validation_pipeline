@@ -80,8 +80,8 @@ def find_response(obs_date,
 def get_response(vdem, date = None, 
                  save_response = False,
                  units = 'DN',
-                 lgtgmax=7.5,lgtgmin=4.5, lgtgstep=0.1,
-                 uzmax = 500., uzmin = -500., uzstep = 100.,
+                 lgtgmax=None, lgtgmin=None, lgtgstep=None,
+                 uzmax = None, uzmin = None, uzstep = None,
                  abund =  "sun_photospheric_2021_asplund", # "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
@@ -131,17 +131,50 @@ def get_response(vdem, date = None,
             raise EnvironmentError("The environment variable 'RESPONSE' is not set. Set it to the directory where response functions are stored.")
         resp_dir = os.environ['RESPONSE']
 
+    # If not explicitly provided, derive logT and vdop grids from the input VDEM
+    if lgtgmin is None:
+        lgtgmin = float(np.min(vdem.logT))
+    if lgtgmax is None:
+        lgtgmax = float(np.max(vdem.logT))
+    if lgtgstep is None:
+        lgt_vals = np.asarray(vdem.logT)
+        lgtgstep = float(np.median(np.diff(lgt_vals))) if lgt_vals.size > 1 else 0.1
+
+    if uzmin is None:
+        uzmin = float(np.min(vdem.vdop))
+    if uzmax is None:
+        uzmax = float(np.max(vdem.vdop))
+    if uzstep is None:
+        vdop_vals = np.asarray(vdem.vdop)
+        uzstep = float(np.median(np.diff(vdop_vals))) if vdop_vals.size > 1 else 100.
+
     zarr_file,obs_date = find_response(date, units = units, delta_month = delta_month)
+
+    # Deciding the synthesis grids once
+    use_vdem_logT = (lgtgmin is None and lgtgmax is None and lgtgstep is None)
+    use_vdem_vdop = (uzmin is None and uzmax is None and uzstep is None)
+
+    if use_vdem_logT:
+        logT = xr.DataArray(np.asarray(vdem.logT.values, dtype=float), dims="logT")
+    else:
+        nT = int(round((lgtgmax - lgtgmin) / lgtgstep)) + 1
+        logT = xr.DataArray(np.linspace(lgtgmin, lgtgmin + (nT - 1) * lgtgstep, nT), dims="logT")
+
+    if use_vdem_vdop:
+        vdop = np.asarray(vdem.vdop.values, dtype=float) * u.km / u.s
+    else:
+        nV = int(round((uzmax - uzmin) / uzstep)) + 1
+        vdop = np.linspace(uzmin, uzmin + (nV - 1) * uzstep, nV) * u.km / u.s
+
     if zarr_file is not None:
         logger.info(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
     # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
     # lines/bands that the response function was constructed with
-        ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
-        lgtaxis = np.linspace(lgtgmin,lgtgmax,ntg)
-        logT = lgtaxis #np.arange(lgtgmin,lgtgmax, lgtgstep)
-        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
+        ##ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
+        ##lgtaxis = np.linspace(lgtgmin,lgtgmax,ntg)
+        ##logT = lgtaxis #np.arange(lgtgmin,lgtgmax, lgtgstep)
         response_all_DN = read_response(zarr_file,
-                                     logT=vdem.logT, 
+                                     logT=logT, ##vdem.logT, 
                                      vdop=vdop.value, vdopmethod="linear",
                                      gain = np.ones((len(chrange)))*18).compute() # note the use of the SAME VDOP!
         if  np.array_equal(chrange, response_all_DN.channel):
@@ -155,8 +188,6 @@ def get_response(vdem, date = None,
     else:
         need_new_response = True
     if need_new_response:
-        logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
-        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
         logger.info(f"*** Constructing line list using pressure = {press:0.1e}, abundance {abund}")
 
