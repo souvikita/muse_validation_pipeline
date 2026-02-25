@@ -167,12 +167,7 @@ def get_response(vdem, date = None,
         vdop = np.linspace(uzmin, uzmin + (nV - 1) * uzstep, nV) * u.km / u.s
 
     if zarr_file is not None:
-        logger.info(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
-    # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
-    # lines/bands that the response function was constructed with
-        ##ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
-        ##lgtaxis = np.linspace(lgtgmin,lgtgmax,ntg)
-        ##logT = lgtaxis #np.arange(lgtgmin,lgtgmax, lgtgstep)
+        logger.info(f'*** {zarr_file} already exists! Reading...')
         response_all_DN = read_response(zarr_file,
                                      logT=logT, ##vdem.logT, 
                                      vdop=vdop.value, vdopmethod="linear",
@@ -207,14 +202,11 @@ def get_response(vdem, date = None,
 
         for ii_ch, ich in enumerate(chrange):
             ch = Channel(ich*u.angstrom)
-            # eff_area = ch.effective_area
             if date is None:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}')
             else:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}'
                   f' date {obs_date.strftime("%b%Y")}')
-                # time_corr = aiapy.calibrate.degradation(ch.channel, obs_date, correction_table=correction_table)
-                # eff_area = eff_area * time_corr
             response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table)
 
             # Convert to xarray format for MUSE Python library format.  
@@ -248,6 +240,7 @@ def get_response(vdem, date = None,
                     gain=18,
                 )
             CI_resp_ph = CI_resp_ph.drop_vars("band")
+            
             # Generate the response function (in the DN units)
             CI_resp_comb_muse = convert_resp2muse_ciresp(
                 CI_resp_ph,
