@@ -53,6 +53,8 @@ def find_response(obs_date,
 
     if obs_date is None:
         resp_file = os.path.join(resp_dir, f'aia_resp_{units}.zarr')
+        if verbose:
+            logger.info(f'*** Looking for {resp_file}')
         if os.path.exists(resp_file):
             zarr_file = resp_file
         else:
@@ -126,7 +128,7 @@ def get_response(vdem, date = None,
     from muse.synthesis.synthesis import transform_resp_units
     from muse.instr.utils import create_eff_area_xarray
     from muse.instr.utils import chianti_gofnt_linelist
-    from muse.instr.utils import create_resp_func, create_resp_line_list, create_resp_func_ci
+    from muse.instr.utils import create_resp_func
     from muse.synthesis.synthesis import transform_resp_units
     from muse.instr.utils import convert_resp2muse_ciresp
 #  Temperature limits, abundance, pressure, and pixel size
@@ -268,88 +270,126 @@ def make_vdem(snapname, snap,
                   code = 'Bifrost',
                   workdir = './',
                   save = False, save_netcdf = False,
-                  save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
-                  compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
+                  save_bz = False, z0 = -0.15, iz0 = 52,  # height at which to save Bz [Mm], iz0 for MURaM, 45 for JMS
+                  compute = True,                         # -> roughly equal to formation height of 617.3 nm HMI line
                   zarr_format = 2, opa_wvl = 171,
                   telescope = 'muse',
-                  aia_vdop = [-500, 600, 100],
-                  muse_vdop = [-200, 210, 10],
+                  eos_mode_ne = 'aux',
+                  emiss_mode = 'notrac_noopa',
+                  chunks = 128,
+                  aia_logT = [5.2,7.1,0.1],
+                  muse_logT = [4.5,7.1,0.1],     # 4.7, 7.6, 0.1
+                  iris_logT = [4.2,6.1,0.1],
+                  aia_vdop = [-500, 500, 500],
+                  muse_vdop = [-200, 210, 10],   # -500, 500, 50
                   iris_vdop = [-100, 100, 2],
+                  author = 'VHH',
                   ):
     import numpy as np
     from muse import logger
     import PlasmaCalcs as pc
     from PlasmaCalcs.tools import _xarray_save_prep
     os.chdir(workdir)
-    vdem_dir = os.path.join(workdir,"vdem")
-    zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{snap:03d}")
+    if code == 'Bifrost':
+        vdem_dir = os.path.join(workdir,"vdem")
+        strsnap = f'{snap:03d}'
+        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
+    else:
+        vdem_dir = workdir
+        strsnap = f'{snap:06d}'
+        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
+        if not compute and not os.path.isfile(zarr_file):
+            zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}.zarr"))
+            if len(zarr_file) == 0:
+                logger.error(f'*** No VDEM file found')
+                return None, None
+            else:
+                zarr_file = zarr_file[0]
+                logger.info(f"*** Reading {zarr_file}")
     if compute:      
-        pc.DEFAULTS.ARRAY_MBYTES_MAX = 8.e+4
-        ec = pc.BifrostCalculator(snapname)
+        pc.DEFAULTS.ARRAY_MBYTES_MAX = 2.7e+5
+        if code == 'Bifrost':
+            ec = pc.BifrostCalculator(f'{snapname}_{snap:03d}.idl')
+            ec.emiss_mode = 'notrac_noopa'
+            iz0 = None
+        elif code == 'MURaM':
+            ec = pc.MuramCalculator()
+            strsnap = f'{snap:06d}'
+            if save_bz:
+                ec.component="z"
+                ec.units="si"
+                bz0 = ec("B").isel(z=iz0).to_numpy()
+            ec.emiss_mode = emiss_mode
+            ec.eos_mode = 'aux'
+            ec.eos_mode_ne = eos_mode_ne
+        else:
+            printf(f'*** Error: No method for reading {code} exists.')
         ec.component='z'
-        ec.snap = f'{snap:03d}'
-        ec.emiss_mode = 'notrac_noopa'
         ec.vdem_mode = 'allinterp'
+        ec.snap = ec.snaps[0]# strsnap
         ec.units = 'cgs'
         ec.tabin.extrapolate_type = "constant"
         if telescope == 'muse':
-            ec.rcoords_vdop_kms = np.arange(muse_vdop[0], muse_vdop[1], muse_vdop[2])
-            ec.rcoords_logT = np.arange(4.5,7.1,0.1)
+            vdop = muse_vdop
+            logT = muse_logT
             logger.info(f'*** Running with vdop/logT set to MUSE standard')
         elif telescope == 'aia':
-            ec.rcoords_vdop_kms = np.arange(aia_vdop[0], aia_vdop[1], aia_vdop[2])
-            ec.rcoords_logT = np.arange(4.5,7.1,0.1)
+            vdop = aia_vdop
+            logT = aia_logT
             logger.info(f'*** Running with vdop set to AIA standard')
         elif telescope == 'iris':
-            ec.rcoords_vdop_kms = np.arange(iris_vdop[0], iris_vdop[1], iris_vdop[2])
-            ec.rcoords_logT = np.arange(4.2,6.1,0.1)
+            vdop = iris_vdop
+            logT = iris_logT
             logger.info(f'*** Running with vdop set to IRIS standard')
         else:
-            logger.info(f'*** No such telescope {telescope}. Returning')
+            logger.warning(f'*** No such telescope {telescope}. Returning')
             return None, None
         ec.rcoords_wavelength_A = opa_wvl # wavelength of opacity if 'opa' is chosen in mode
-        vdem = ec('vdem', chunks=dict(x=256), ncpu=12)      
-        vdem = _xarray_save_prep(vdem)
-        vdem0 = vdem[0]
-        vdem0.to_zarr("_pc_caches_zarr_saving.zarr", zarr_format = zarr_format, mode = "w")
-        vdem_temp0 = xr.open_zarr("_pc_caches_zarr_saving.zarr", zarr_format = zarr_format).compute()
-        vdem0 = xr.Dataset()
-        vdem0["vdem"] = vdem_temp0.vdem
-        vdem0.attrs = vdem[0].attrs
-        vdem0.x.attrs["long_name"] = "X"
-        vdem0.y.attrs["long_name"] = "Y"
-        vdem0.x.attrs["units"] = "cm"
-        vdem0.y.attrs["units"] = "cm"
-        vdem0.vdem.attrs["units"] = "1e27 / cm5"
-        vdem0.vdem.attrs["description"] = "DEM(T,vel,x,y)"
-        vdem0.vdop.attrs["long_name"] = r"v$_{Doppler}$"
-        vdem0.vdop.attrs["units"] = "km/s"
-        vdem0.logT.attrs["long_name"] = r"log$_{10}$(T)"
-        vdem0.logT.attrs["units"] = r"log$_{10}$ (K)"
-        vdem = vdem0.compute()
+        vdem = ec.vdem_pipeline(los_dim='z', 
+                                iz0 = iz0, 
+                                tg_percent = 0.1, 
+                                dlogT = logT[2],
+                                mintg_cut = logT[0], 
+                                maxtg_cut = logT[1], 
+                                tg_bins = 60,
+                                ulos_bin = 60,
+                                vel_percent = 0.1,
+                                dvdop = vdop[2],
+                                minvel_cut = vdop[0],
+                                maxvel_cut = vdop[1],
+                                modelname = snapname,
+                                chunks = chunks,
+                                ncpu=14,
+                                author = author,
+                                )
     else:
         try:
+            zarr_file = zarr_file.split('.zarr')[0]
             vdem = xr.open_zarr(f'{zarr_file}.zarr').compute()
         except:
             vdem = xr.open_dataset(f'{zarr_file}.nc')
         save = False
     if save:
+        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}").split('.zarr')[0]
         try:
+            logger.info(f"Saving vdem to {f'{zarr_file}.zarr'}")
             vdem.to_zarr(f'{zarr_file}.zarr', mode = "w", zarr_format = zarr_format)
-            logger.info(f"Saved vdem to {f'{zarr_file}.zarr'}")
         except:
             logger.warning(f"*** Warning: Could not save zarr file {f'{zarr_file}.zarr'}. Using NetCDF.")
             save_netcdf = True
     if save_netcdf:
             vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
             logger.info(f"Saved vdem to {f'{zarr_file}.nc'}")
-    if save_bz:
-        dd = br.BifrostData(snapname,snap)
-        dd.set_snap(snap)
-        iz0 = np.argmin(np.abs(dd.z - z0))
-        bz = dd.get_var('bz')
-        bz0 = bz[:,:,iz0]*dd.params['u_b'][0]
-        bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+    if save_bz: 
+        if code == 'Bifrost':
+            dd = br.BifrostData(snapname,snap)
+            dd.set_snap(snap)
+            iz0 = np.argmin(np.abs(dd.z - z0))
+            bz = dd.get_var('bz')
+            bz0 = bz[:,:,iz0]*dd.params['u_b'][0]
+            bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+        else: # MURaM 
+            bz_file = os.path.join(vdem_dir,f'Bz_i0z={iz0:03d}_{snap:03d}.npy')
         np.save(bz_file, bz0, allow_pickle = True)
         logger.info(f"Saved {bz_file}")
     else:
@@ -357,15 +397,18 @@ def make_vdem(snapname, snap,
             logger.info(f'*** Attempting read of Bz0 from {vdem_dir} snap {snap}')
             bz0 = get_vdem_bz(vdem_dir, snap)
         except:
-            logger.info(f'*** Cound not find any Bz file, returning None')
+            logger.warning(f'*** Cound not find any Bz file, returning None')
             bz0 = None
     return vdem, bz0
 
 # **************************************************
 
-def get_vdem_bz(bzdir, snap, z0 = -0.15):
+def get_vdem_bz(bzdir, snap, z0 = -0.15, iz0 = None):
        import numpy as np
-       bzfile = os.path.join(bzdir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+       if iz0 == None:
+            bzfile = os.path.join(bzdir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
+       else:
+            bzfile = os.path.join(bzdir,f'Bz_iz0={iz0:03d}_{snap:06d}.npy')  
        f = np.load(bzfile)
        return f
 
@@ -655,6 +698,8 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    'qsx2n'       'qs072100_x2n'                     'qs072100_x2'
    'qsx2s'       'qs072100_x2s'                     'qs072100_x2'
    'qs50d2'      'qs072050'                         'qs072050_d2'
+   'qs50x2'      'qs072050'                         'qs072050_x2'
+   'qs50hion'    'qs072050'                         'qs072050_hion'
    'qsd4'        'qs072100_d4'                      'qs072100_d4'
    'qs50d4'      'qs072050'                         'qs072050_d4'
    'pl072100'    'pl072100'                         'pl072100'
@@ -709,19 +754,20 @@ def plot_aia_overview(muse_AIA, bz0, channels = [171, 193, 131, 211],
         cbar.ax.yaxis.tick_right()
         cbar.set_label(rf'AIA Intensity [DN/s]', fontsize = fontsize)
     #
-    im = ax[0][2].imshow(np.rot90(bz0, k=1), vmin = -500, vmax = 500, cmap=cm.Greys_r,extent = extent, origin = 'lower')
-    ax[0][2].set_xlabel(f'X [{len_scale}]', fontsize = fontsize)
-    ax[0][2].set_ylabel(f'Y [{len_scale}]', fontsize = fontsize)
-    ax[0][2].set_title(fr'Mean magnetic field $\sqrt{{B_z^2}}$ = {np.mean(np.sqrt(bz0**2)):0.2f} Gauss', fontsize = fontsize)
+    if bz0 is not None:
+        im = ax[0][2].imshow(np.rot90(bz0, k=1), vmin = -500, vmax = 500, cmap=cm.Greys_r,extent = extent, origin = 'lower')
+        ax[0][2].set_xlabel(f'X [{len_scale}]', fontsize = fontsize)
+        ax[0][2].set_ylabel(f'Y [{len_scale}]', fontsize = fontsize)
+        ax[0][2].set_title(fr'Mean magnetic field $\sqrt{{B_z^2}}$ = {np.mean(np.sqrt(bz0**2)):0.2f} Gauss', fontsize = fontsize)
     #
-    divider = make_axes_locatable(ax[0][2])
-    cax = divider.append_axes('right', size='3%', pad=0.1, axes_class=plt.Axes)
-    cbar = fig.colorbar(im, cax=cax, extend ='both')
-    cbar.ax.tick_params(direction='out')
-    cbar.ax.yaxis.set_ticks_position('right')
-    cbar.ax.yaxis.set_label_position('right')
-    cbar.ax.yaxis.tick_right()
-    cbar.set_label(rf'{code} Vertical Field [Gauss]', fontsize = fontsize)
+        divider = make_axes_locatable(ax[0][2])
+        cax = divider.append_axes('right', size='3%', pad=0.1, axes_class=plt.Axes)
+        cbar = fig.colorbar(im, cax=cax, extend ='both')
+        cbar.ax.tick_params(direction='out')
+        cbar.ax.yaxis.set_ticks_position('right')
+        cbar.ax.yaxis.set_label_position('right')
+        cbar.ax.yaxis.tick_right()
+        cbar.set_label(rf'{code} Vertical Field [Gauss]', fontsize = fontsize)
 
     ax[1][2].set_xlabel(r'$\log_{10}$DN/s',fontsize = fontsize)
     ax[1][2].set_ylabel('Percentage',fontsize = fontsize)
