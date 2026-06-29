@@ -82,19 +82,32 @@ def find_response(obs_date,
 def get_response(vdem, date = None, 
                  save_response = False,
                  units = 'DN',
-                 lgtgmax=7.5,lgtgmin=4.5, lgtgstep=0.1,
-                 uzmax = 500., uzmin = -500., uzstep = 100.,
+                 lgtgmax=None, lgtgmin=None, lgtgstep=None,
+                 uzmax = None, uzmin = None, uzstep = None,
                  abund =  "sun_photospheric_2021_asplund", # "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 channels = [94, 131, 171, 193, 211, 304, 335],  
+                 chrange = np.array((94, 131, 171, 193, 211, 335)), #ignoring the 304 for the time being 
+                #  channels = [94, 131, 171, 193, 211, 304, 335],  
                  resp_dir = None,
                  wavelength_range = [80,850],
-                 minimum_abundance = 1.e-20, 
+                 minimum_abundance = 1e-15, 
                  delta_month = 12,
+                 n_cont_top = 150,
                  ):
     
     from muse import logger
+    import os
+    import aiapy
+    import numpy as np
+    import xarray as xr
+    import astropy.constants as const
+    import astropy.units as u
+    from aiapy.response import Channel
+    from muse.utils.utils import read_response
+    from muse.instr.utils import create_resp_func, convert_resp2muse_ciresp, create_eff_area_xarray, chianti_gofnt_linelist
+    from muse.synthesis.synthesis import vdem_synthesis, vdem_syn_join_slits_wvl, ph2dn, ph2e, transform_resp_units
+
     '''
     Looks for and reads or computes response function closest in time to obs_date, returns response function
 
@@ -113,54 +126,57 @@ def get_response(vdem, date = None,
               new response function is suggested, default 12 months.
     units: str, optional, response function intensity units, default DN.
     verbose: bool, optional, be verbose, default True
+
     '''
     if resp_dir is None:
         if 'RESPONSE' not in os.environ:
             raise EnvironmentError("The environment variable 'RESPONSE' is not set. Set it to the directory where response functions are stored.")
         resp_dir = os.environ['RESPONSE']
-    import aiapy
-    import numpy as np
-    import xarray as xr
-    import astropy.constants as const
-    import astropy.units as u
-    from aiapy.response import Channel
-    from muse.utils.utils import read_response
-    from muse.synthesis.synthesis import transform_resp_units
-    from muse.instr.utils import create_eff_area_xarray
-    from muse.instr.utils import chianti_gofnt_linelist
-    from muse.instr.utils import create_resp_func
-    from muse.synthesis.synthesis import transform_resp_units
-    from muse.instr.utils import convert_resp2muse_ciresp
-#  Temperature limits, abundance, pressure, and pixel size
-#  NB note that available abundance files depend on Chianti version!
-#  Other possible abundance files to look for...
-#  abund = "sun_photospheric_2011_caffau"
-#  abund = "sun_photospheric_2021_asplund"
-#    if use_QS_bands:
-#        aia_goes_lines.remove('AIA 304')
-#        lines = aia_goes_lines[0:6]
-#        bands = [int(s) for s in " ".join(lines).split("AIA ")[1:7]]
-# bands = list(map(int," ".join(lines.split("AIA ")[1:5]))
-#    else:
-#        print("*** You should set use_QS_bands to true unless you know what you are doing!!!")
-#        sys.exit()
-#
+
+    # If not explicitly provided, derive logT and vdop grids from the input VDEM
+    if lgtgmin is None:
+        lgtgmin = float(np.min(vdem.logT))
+    if lgtgmax is None:
+        lgtgmax = float(np.max(vdem.logT))
+    if lgtgstep is None:
+        lgt_vals = np.asarray(vdem.logT)
+        lgtgstep = float(np.median(np.diff(lgt_vals))) if lgt_vals.size > 1 else 0.1
+
+    if uzmin is None:
+        uzmin = float(np.min(vdem.vdop))
+    if uzmax is None:
+        uzmax = float(np.max(vdem.vdop))
+    if uzstep is None:
+        vdop_vals = np.asarray(vdem.vdop)
+        uzstep = float(np.median(np.diff(vdop_vals))) if vdop_vals.size > 1 else 100.
+
     zarr_file,obs_date = find_response(date, units = units, delta_month = delta_month)
+
+    # Deciding the synthesis grids once
+    use_vdem_logT = (lgtgmin is None and lgtgmax is None and lgtgstep is None)
+    use_vdem_vdop = (uzmin is None and uzmax is None and uzstep is None)
+
+    if use_vdem_logT:
+        logT = xr.DataArray(np.asarray(vdem.logT.values, dtype=float), dims="logT")
+    else:
+        nT = int(round((lgtgmax - lgtgmin) / lgtgstep)) + 1
+        logT = xr.DataArray(np.linspace(lgtgmin, lgtgmin + (nT - 1) * lgtgstep, nT), dims="logT")
+
+    if use_vdem_vdop:
+        vdop = np.asarray(vdem.vdop.values, dtype=float) * u.km / u.s
+    else:
+        nV = int(round((uzmax - uzmin) / uzstep)) + 1
+        vdop = np.linspace(uzmin, uzmin + (nV - 1) * uzstep, nV) * u.km / u.s
+
     if zarr_file is not None:
-        logger.info(f'*** {zarr_file} already exists! Reading...') #But it may happen that the same bands are not requested.
-    # it is not quite clear how to find the number of gains asked for... should be equal to the number of 
-    # lines/bands that the response function was constructed with
-        ntg = int((lgtgmax-lgtgmin)/lgtgstep) + 1
-        lgtaxis = np.linspace(lgtgmin,lgtgmax,ntg)
-        logT = lgtaxis #np.arange(lgtgmin,lgtgmax, lgtgstep)
-        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
-        response_all = read_response(zarr_file,
-                                     logT=vdem.logT, 
-                                     vdop=vdem.vdop, vdopmethod="linear",
-                                     gain = np.ones((len(channels)))*18).compute()
-        if  np.array_equal(channels, response_all.channel):
+        logger.info(f'*** {zarr_file} already exists! Reading...')
+        response_all_DN = read_response(zarr_file,
+                                     logT=logT, ##vdem.logT, 
+                                     vdop=vdop.value, vdopmethod="linear",
+                                     gain = np.ones((len(chrange)))*18).compute() # note the use of the SAME VDOP!
+        if  np.array_equal(chrange, response_all_DN.channel):
             logger.info("The channels of the response function match.")
-            return response_all ##this is fine, no need to create a new response function
+            return response_all_DN ##this is fine, no need to create a new response function
         else:
             logger.info("The channels of the response function do not match the requested channels. Creating a new response function.")
             need_new_response = True ##Treating this as a flag to create a new response function
@@ -169,11 +185,11 @@ def get_response(vdem, date = None,
     else:
         need_new_response = True
     if need_new_response:
-        logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
-        vdop = np.arange(uzmin, uzmax, uzstep) * u.km / u.s
         pressure = xr.DataArray(np.array([press]), dims= 'pressure')
         logger.info(f"*** Constructing line list using pressure = {press:0.1e}, abundance {abund}")
-        line_list = chianti_gofnt_linelist(temperature = 10**logT,
+
+        line_list = chianti_gofnt_linelist(ionList = None,
+                                           temperature = 10**logT,
                                            pressure=pressure,
                                            abundance = abund,
                                            wavelength_range = wavelength_range,
@@ -185,65 +201,65 @@ def get_response(vdem, date = None,
         except:
             logger.info('*** Correction table taken from local SSW installation')
             correction_table = aiapy.calibrate.util.get_correction_table('SSW')
-        for band in channels:
-            ch = Channel(band*u.angstrom)
+
+        for ii_ch, ich in enumerate(chrange):
+            ch = Channel(ich*u.angstrom)
             if date is None:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}')
             else:
                 logger.info(f'*** Computing {units} response function for {ch.channel.to_string()}'
                   f' date {obs_date.strftime("%b%Y")}')
-            response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table) 
+            response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table)
+
+            # Convert to xarray format for MUSE Python library format.  
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
-            area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars('wavelength')
-            line_list["resp_func"] = line_list.gofnt.sum(['logT']) * area.isel(band=0)
-            line_list = line_list.drop_vars('band')
-            sort_index = np.argsort(-line_list.resp_func, 
+            area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars("wavelength")
+            line_list["resp_func"] = line_list.gofnt.sum("logT").isel(pressure=0, abundance=0) * area.isel(band=0).drop_vars("band")
+            
+            line_list_eff = line_list.sortby(line_list.resp_func).copy(deep=True)
+            # We select the 50 strongest lines within each channel
+            sort_index = np.argsort(-line_list_eff.resp_func, 
                         axis=line_list.resp_func.get_axis_num('trans_index'))
-            line_list_sort = line_list[dict(trans_index=sort_index)]
-            line_list_sort_c = line_list_sort.isel(trans_index=np.arange(1000))
-            ''' Important, considering here 1000 lines!!!!!!! 
-                this creates the response function. Note that now we provide pressure 
-                (it can also be an array) or not sum lines, but 
-                if you have many it becomes a huge array!
-            ''' 
-            n = line_list_sort_c.sizes['trans_index']
-            resp = create_resp_func(
-                line_list_sort_c,
-                vdop=vdop,
-                instr_width=0,  
-                effective_area=eff_xr.eff_area,
-                wvlr=wavelength_range,
-                num_lines_keep=0,
+            line_list_eff = line_list_eff[{"trans_index": sort_index}]
+            # We may want to control this with EM instead of top lines
+            line_list_eff = line_list_eff.isel(trans_index=np.arange(n_cont_top))
+            
+            CI_resp = create_resp_func(
+                    line_list_eff,
+                    vdop=vdop,
+                    instr_width=0.0,
+                    effective_area=eff_xr.eff_area,
+                    wvlr=[eff_xr.wavelength.min().values,eff_xr.wavelength.max().values],
+                    num_lines_keep=0,
                 )
-            resp_dn = transform_resp_units(resp,
-                                           new_units="1e-27 cm5 DN / (Angstrom s)",
-                                           wvl=np.array(resp.wavelength.data),
-                                           dx_pix=dx_pix, dy_pix=dy_pix,
-                                           gain = 18,
-                                           )
-            ci_resp = convert_resp2muse_ciresp(resp_dn)
-            line_list = line_list.drop_vars("resp_func")
-            ci_resp = ci_resp.drop_vars("band")
-            if band == channels[0]:
-                response_all = ci_resp
-            else:
-                response_all = xr.concat([response_all, ci_resp], dim="channel")
-        response_all["SG_resp"] = response_all.SG_resp.fillna(0)
-        response_all = response_all.assign_coords(channel = ("channel", channels))
-        if "band" in response_all.SG_resp.dims:
-            response_all["SG_resp"] = response_all["SG_resp"].squeeze("band", drop=True)
-            if "band" in response_all.dims:
-                response_all = response_all.drop_dims("band")
-        response_all = response_all.compute()
+    
+            CI_resp_ph = transform_resp_units(
+                    CI_resp,
+                    new_units="1e-27 cm5 DN / (Angstrom s)",
+                    wvl=np.array(CI_resp.wavelength.data),
+                    dx_pix=dx_pix,
+                    dy_pix=dy_pix,
+                    gain=18,
+                )
+            CI_resp_ph = CI_resp_ph.drop_vars("band")
+            
+            # Generate the response function (in the DN units)
+            CI_resp_comb_muse = convert_resp2muse_ciresp(
+                CI_resp_ph,
+            )
+            if ii_ch == 0: 
+                reponse_all_DN = CI_resp_comb_muse
+            else: 
+                reponse_all_DN = xr.concat([reponse_all_DN, CI_resp_comb_muse], dim="channel")
+        reponse_all_DN = reponse_all_DN.assign_coords(channel=("channel", chrange))   
         save_response = True
-#
-#    response_all = response_all.assign_coords(line = ("band",['AIA '+f'{int(s)}' for s in response_all.band.data]))
+           
     if obs_date is None:
-        response_all = response_all.assign_attrs(date = "None")
+        response_all_DN = reponse_all_DN.assign_attrs(date = "None")
     else:
-        response_all = response_all.assign_attrs(date = obs_date.strftime("%d-%b-%Y"))
+        reponse_all_DN = reponse_all_DN.assign_attrs(date = obs_date.strftime("%d-%b-%Y"))
 #
-    response_all = response_all.compute()
+    reponse_all_DN = reponse_all_DN.compute()
 #
     if obs_date is None:
         zarr_file = f'aia_resp_{units}.zarr'
@@ -252,17 +268,17 @@ def get_response(vdem, date = None,
     zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
         try:
-            response_all.to_zarr(f'{zarr_file}', mode = "w")
+            reponse_all_DN.to_zarr(f'{zarr_file}', mode = "w")
             logger.info(f"Saved response to {f'{zarr_file}'}")
         except:
             logger.info(f"*** Error: Could not save zarr file {f'{zarr_file}'}. Using NetCDF.")
-            response_all.to_netcdf(f'{zarr_file}.nc', mode = "w")
+            reponse_all_DN.to_netcdf(f'{zarr_file}.nc', mode = "w")
             logger.info(f"Saved response to {f'{zarr_file}.nc'}")
-    response_all = read_response(zarr_file,
-                                 logT=vdem.logT, 
-                                 vdop=vdem.vdop, vdopmethod="linear",
-                                 gain = np.ones((len(channels)))*18).compute()
-    return response_all
+    # response_all = read_response(zarr_file,
+    #                              logT=vdem.logT, 
+    #                              vdop=vdop, vdopmethod="linear",
+    #                              gain = np.ones((len(chrange)))*18).compute()
+    return reponse_all_DN
 
 # **************************************************
 
@@ -579,91 +595,7 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             logger.info(f"Saved HMI cutout to {output_file}")
         except Exception as e:
             logger.error(f"Error processing EIS data: {e}")
-
-# **************************************************
-
-def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
-    """
-    Saves HMI cutouts corresponding to the EIS data.
-
-    Parameters:
-    -----------
-    magnetogram_path : str
-        Path to the directory containing HMI magnetogram data files.
-    output_dir : str
-        Directory where the output cutouts will be saved.
-    eis_data_list : list
-        List of EIS data arrays for which corresponding HMI cutouts are to be saved.
-        Need to use eispac.read_cube(downloaded_data_h5[0])
-    """
-    import os
-    from glob import glob
-    if not eis_data_list:
-        logger.error("No EIS data found for:", magnetogram_path)
-        return
-    # Find the first matching magnetogram and AIA file
-    mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
-    aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
-    if not mag_files or not aia_files:
-        logger.error(f"Missing HMI or AIA files in {magnetogram_path}")
-        return
-    hmi_map = sunpy.map.Map(mag_files[0])
-    aia_map_fdisk = sunpy.map.Map(aia_files[0])
-    out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs)
-    for eis_data in eis_data_list:
-        try:
-            meta = eis_data.meta
-            bottom_left = SkyCoord(meta['extent_arcsec'][0]*u.arcsec, meta['extent_arcsec'][2]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
-            top_right = SkyCoord(meta['extent_arcsec'][1]*u.arcsec, meta['extent_arcsec'][3]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
-            cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
-            output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
-            cutout_hmi_aligned.save(output_file)
-            logger.info(f"Saved HMI cutout to {output_file}")
-        except Exception as e:
-            logger.error(f"Error processing EIS data: {e}")
-
-# **************************************************
-
-def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
-    """
-    Saves HMI cutouts corresponding to the EIS data.
-
-    Parameters:
-    -----------
-    magnetogram_path : str
-        Path to the directory containing HMI magnetogram data files.
-    output_dir : str
-        Directory where the output cutouts will be saved.
-    eis_data_list : list
-        List of EIS data arrays for which corresponding HMI cutouts are to be saved.
-        Need to use eispac.read_cube(downloaded_data_h5[0])
-    """
-    import os
-    from glob import glob
-    if not eis_data_list:
-        logger.error("No EIS data found for:", magnetogram_path)
-        return
-    # Find the first matching magnetogram and AIA file
-    mag_files = glob(os.path.join(magnetogram_path, '*magnetogram.fits'))
-    aia_files = glob(os.path.join(magnetogram_path, '*.193.image_lev1.fits'))
-    if not mag_files or not aia_files:
-        logger.error(f"Missing HMI or AIA files in {magnetogram_path}")
-        return
-    hmi_map = sunpy.map.Map(mag_files[0])
-    aia_map_fdisk = sunpy.map.Map(aia_files[0])
-    out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs)
-    for eis_data in eis_data_list:
-        try:
-            meta = eis_data.meta
-            bottom_left = SkyCoord(meta['extent_arcsec'][0]*u.arcsec, meta['extent_arcsec'][2]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
-            top_right = SkyCoord(meta['extent_arcsec'][1]*u.arcsec, meta['extent_arcsec'][3]*u.arcsec, obstime=meta['mod_index']['date_obs'], observer="earth", frame="helioprojective")
-            cutout_hmi_aligned = out_hmi.submap(bottom_left, top_right=top_right)
-            output_file = os.path.join(output_dir, f"HMI_Cutout_{meta['mod_index']['date_obs']}.fits")
-            cutout_hmi_aligned.save(output_file)
-            logger.info(f"Saved HMI cutout to {output_file}")
-        except Exception as e:
-            logger.error(f"Error processing EIS data: {e}")
-
+            
 # **************************************************
 
 def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
