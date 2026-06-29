@@ -1,13 +1,13 @@
 import os
 import numpy as np
 import xarray as xr
-import br_py.tools as btr
+#import br_py.tools as btr
 from muse.synthesis.synthesis import vdem_synthesis
 from irispreppy.radcal import iris_get_response as igr
 import datetime as dt
 
-
-def make_iris_vdem(simulation, snap,
+### Below is marked for removal - replaced by make_vdem (resides in museval.utils)
+""" def make_iris_vdem(simulation, snap,
                    save = True, 
                    save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
                    compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
@@ -49,7 +49,7 @@ def make_iris_vdem(simulation, snap,
         print(f"Saved {bz_file}")
     else:
         bz0 = get_vdem_bz(workdir, snap)
-    return vdem, bz0
+    return vdem, bz0 """
 
 def make_line_response(ionstr = ["si_4"],
                        wvlr = np.array([1393.75,1393.76]),
@@ -152,7 +152,7 @@ def transform_iris_resp_units(
 #    resp["CDELTY"] = iris['cdelty']
 
     add_history(resp, locals(), transform_iris_resp_units)
-    return resp, iris['fovx'], iris['fovy'], iris['cdelty']
+    return resp, iris['fovx'], iris['fovy'], iris['cdelty'], iris['cdeltw'] 
 
 def iris_radiometric(iris_file,
                      set_exptime = False):
