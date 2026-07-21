@@ -87,7 +87,7 @@ def get_response(vdem, date = None,
                  abund =  "sun_photospheric_2021_asplund", # "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 chrange = np.array((94, 131, 171, 193, 211, 335)), #ignoring the 304 for the time being 
+                 chrange = np.array((94, 131, 171, 193, 211, 304, 335)), #ignoring the 304 for the time being 
                 #  channels = [94, 131, 171, 193, 211, 304, 335],  
                  resp_dir = None,
                  wavelength_range = [80,850],
@@ -293,13 +293,9 @@ def make_vdem(snapname, snap,
                   eos_mode_ne = 'aux',
                   emiss_mode = 'notrac_noopa',
                   chunks = 128,
-                  aia_logT = [5.2,7.1,0.1],
-                  muse_logT = [4.5,7.1,0.1],     # 4.7, 7.6, 0.1
-                  iris_logT = [4.2,6.1,0.1],
-                  aia_vdop = [-500, 500, 500],
-                  muse_vdop = [-200, 210, 10],   # -500, 500, 50
-                  iris_vdop = [-100, 100, 2],
-                  author = 'VHH',
+                  ncpu = 4,
+                  aia_logT = [4.6, 7.1, 0.1], muse_logT = [4.5, 7.2, 0.1], iris_logT = [4.2, 6.0, 0.1],
+                  aia_vdop = [-500, 500, 100], muse_vdop = [-200, 200, 20], iris_vdop = [-100, 100, 5],
                   ):
     import numpy as np
     from muse import logger
@@ -327,10 +323,12 @@ def make_vdem(snapname, snap,
         if code == 'Bifrost':
             ec = pc.BifrostCalculator(f'{snapname}_{snap:03d}.idl')
             ec.emiss_mode = 'notrac_noopa'
+            ec.snap = f"{snap:03d}"
             iz0 = None
         elif code == 'MURaM':
             ec = pc.MuramCalculator()
             strsnap = f'{snap:06d}'
+            ec.snap = strsnap
             if save_bz:
                 ec.component="z"
                 ec.units="si"
@@ -375,7 +373,8 @@ def make_vdem(snapname, snap,
                                 maxvel_cut = vdop[1],
                                 modelname = snapname,
                                 chunks = chunks,
-                                ncpu=14,
+                                ncpu=ncpu,
+                                save = False,
                                 author = author,
                                 )
     else:
@@ -642,6 +641,7 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    'sw'          'sw072050'                         'sw072050'
    'cbp'         'mn4_np3d_10g_8mm'                 'np3D_10G_8Mm'
    'cbpx2'       'mn4_np3d_10g_8mm_2res'            'np3D_10G_8Mm_2xres'
+   'plage'       'plage'                            'sanja'
    """
    Simulations_Table = ascii.read(Simulations)
    if not os.path.exists(work) or help==True:
