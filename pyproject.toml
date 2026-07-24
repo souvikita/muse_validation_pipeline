@@ -45,6 +45,7 @@ dependencies = [
   'python-dateutil>=2.9.0',
   'irispreppy',
   'irispy-lmsal',
+  #'muse @ git+https://gitlab.com/LMSAL_HUB/muse_hub/muse.git',
 ]
 
 [project.urls]
