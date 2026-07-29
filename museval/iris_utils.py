@@ -6,7 +6,7 @@ import astropy.units as u
 from astropy import constants
 from astropy.coordinates import SkyCoord, SpectralCoord
 from astropy.modeling import models as m
-from astropy.modeling.fitting import LevMarLSQFitter, parallel_fit_dask
+from astropy.modeling.fitting import TRFLSQFitter, parallel_fit_dask
 from astropy.visualization import time_support
 import os
 from sunpy.coordinates import frames
@@ -113,102 +113,128 @@ def download_iris_raster(target_url, obs_data_dir):
         return raster_filename
 
 
-def fit_iris_si_iv(raster, client):
+def fit_si_iv(raster, client):
     """
-    Performs full fitting analysis on IRIS Si IV 1403.
-    
+    Performs full fitting analysis on IRIS Si IV 1403 or Si IV 1394.
+
+    If both spectral windows are present in the raster, Si IV 1403 is fit
+    preferentially.
+
     Parameters:
     -----------
     raster : dict
         IRIS raster data loaded from read_files
     client : dask.distributed.Client
         Dask client for parallel processing
-        
+
     Returns:
     --------
     tuple
-        (iris_model_fit, si_iv_1403) - Fitted model and Si IV 1403
+        (iris_model_fit, si_iv_spec) - Fitted model and the Si IV spectrogram
+        that was fit
     """
     raster_keys = list(raster.keys())
     if "Si IV 1403" in raster_keys:
-        si_iv_1403 = raster["Si IV 1403"][-1]  # last raster in the series
+        spectral_window = "Si IV 1403"
         si_iv_core = 140.277 * u.nm
-        normalized_unit = si_iv_1403.unit / u.s
-        exposure_time_reshaped = si_iv_1403.exposure_time.value[:, np.newaxis, np.newaxis]
-        clipped_data = np.maximum(si_iv_1403.data,0) #Filtering out non-positive values
-        normalized_data = clipped_data/ exposure_time_reshaped
-        normalized_data = np.where(np.isnan(normalized_data), 0, normalized_data) # can be nan because of the zero exposure time
-        normalized_si_iv_spec = SpectrogramCube(
-            normalized_data,
-            si_iv_1403.wcs,
-            meta=si_iv_1403.meta,
-            unit=normalized_unit,
-            uncertainty=si_iv_1403.uncertainty,
-            copy=True,
-        )
-        wl_sum = normalized_si_iv_spec.rebin((1, 1, normalized_si_iv_spec.data.shape[-1]), operation=np.sum)[0]
-        spatial_mean = normalized_si_iv_spec.rebin((*normalized_si_iv_spec.data.shape[:-1], 1))[0, 0, :]
-        initial_model = m.Const1D(amplitude=1/si_iv_1403.exposure_time.value[0] * normalized_si_iv_spec.unit) + m.Gaussian1D(
-            amplitude=np.nanmax(spatial_mean.data) * normalized_si_iv_spec.unit, mean=si_iv_core, stddev=0.005 * u.nm
-        )
-
-        fitter = LevMarLSQFitter()
-        average_fit = fitter(
-            initial_model,
-            spatial_mean.axis_world_coords("em.wl")[0].to(u.nm),
-            spatial_mean.data * spatial_mean.unit,
-            filter_non_finite = True,  # Allow fitting with non-finite values
-        )
-        # We want to do some basic data sanitization.
-        # Remove negative values and set them to zero and remove non-finite values.
-        filtered_data = np.where(normalized_si_iv_spec.data < 0, 0, normalized_si_iv_spec.data)
-        filtered_data = np.where(np.isfinite(filtered_data), filtered_data, 0)
-        # We can therefore fit the cube
-        with warnings.catch_warnings():
-            # There are several WCS warnings we just want to ignore
-            warnings.simplefilter("ignore")
-            iris_model_fit = parallel_fit_dask(
-                data=filtered_data,
-                data_unit=normalized_si_iv_spec.unit,
-                fitting_axes=2,
-                world=normalized_si_iv_spec.wcs,
-                model=average_fit,
-                fitter=LevMarLSQFitter(),
-                scheduler=client,
-            )
-        
-        return iris_model_fit, si_iv_1403
+    elif "Si IV 1394" in raster_keys:
+        spectral_window = "Si IV 1394"
+        si_iv_core = 139.375 * u.nm
     else:
-        print("No Si IV 1403 data found in the raster. Aborting fitting.")
+        print("No Si IV 1403 or Si IV 1394 data found in the raster. Aborting fitting.")
         return None, None
 
+    si_iv_spec = raster[spectral_window][-1]  # last raster in the series
+    normalized_unit = si_iv_spec.unit / u.s
+    exposure_time_reshaped = si_iv_spec.exposure_time.value[:, np.newaxis, np.newaxis]
+    clipped_data = np.maximum(si_iv_spec.data,0) #Filtering out non-positive values
+    normalized_data = clipped_data/ exposure_time_reshaped
+    normalized_data = np.where(np.isnan(normalized_data), 0, normalized_data) # can be nan because of the zero exposure time
+    normalized_si_iv_spec = SpectrogramCube(
+        normalized_data,
+        si_iv_spec.wcs,
+        meta=si_iv_spec.meta,
+        unit=normalized_unit,
+        uncertainty=si_iv_spec.uncertainty,
+        copy=True,
+    )
+    wl_sum = normalized_si_iv_spec.rebin((1, 1, normalized_si_iv_spec.data.shape[-1]), operation=np.sum)[0]
+    spatial_mean = normalized_si_iv_spec.rebin((*normalized_si_iv_spec.data.shape[:-1], 1))[0, 0, :]
+    initial_model = m.Const1D(amplitude=1/si_iv_spec.exposure_time.value[0] * normalized_si_iv_spec.unit) + m.Gaussian1D(
+        amplitude=np.nanmax(spatial_mean.data) * normalized_si_iv_spec.unit, mean=si_iv_core, stddev=0.005 * u.nm
+    )
 
-def save_fit_results(iris_model_fit, si_iv_1403, date_begin, obs_data_dir):
+    fitter = TRFLSQFitter()
+    average_fit = fitter(
+        initial_model,
+        spatial_mean.axis_world_coords("em.wl")[0].to(u.nm),
+        spatial_mean.data * spatial_mean.unit,
+        filter_non_finite = True,  # Allow fitting with non-finite values
+    )
+    # We want to do some basic data sanitization.
+    # Remove negative values and set them to zero and remove non-finite values.
+    filtered_data = np.where(normalized_si_iv_spec.data < 0, 0, normalized_si_iv_spec.data)
+    filtered_data = np.where(np.isfinite(filtered_data), filtered_data, 0)
+    # The wavelength axis does not vary spatially, so pass it directly as a 1D
+    # array rather than the full cube WCS. Passing the WCS forces parallel_fit_dask
+    # to evaluate the full helioprojective coordinate transform (expensive, and not
+    # reliably picklable across worker processes) for every pixel, just to recover
+    # a wavelength axis that is identical at every spatial position.
+    wavelength_axis = normalized_si_iv_spec.axis_world_coords("em.wl")[0].to(u.nm)
+    # We can therefore fit the cube
+    with warnings.catch_warnings():
+        # There are several WCS warnings we just want to ignore
+        warnings.simplefilter("ignore")
+        iris_model_fit = parallel_fit_dask(
+            data=filtered_data,
+            data_unit=normalized_si_iv_spec.unit,
+            fitting_axes=2,
+            world=(wavelength_axis,),
+            model=average_fit,
+            fitter=TRFLSQFitter(),
+            scheduler=client,
+        )
+
+    return iris_model_fit, si_iv_spec
+
+
+def save_fit_results(iris_model_fit, si_iv_spec, date_begin, obs_data_dir):
     """
     Saves fit results to NPZ file.
-    
+
     Parameters:
     -----------
     iris_model_fit : astropy.modeling.Model
         Fitted model from parallel_fit_dask
-    si_iv_1403 : irispy.Spectrogram
-        Si IV 1403 spectrogram data
+    si_iv_spec : irispy.Spectrogram
+        Si IV 1403 or Si IV 1394 spectrogram data
     date_begin : str
         Beginning date string (used for filename)
     obs_data_dir : str
         Directory where the NPZ file will be saved
     """
-    si_iv_core = 140.277 * u.nm
+    spectral_window = si_iv_spec.meta.spectral_window
+    if spectral_window == "Si IV 1403":
+        si_iv_core = 140.277 * u.nm
+        line_tag = "1403"
+    elif spectral_window == "Si IV 1394":
+        si_iv_core = 139.375 * u.nm
+        line_tag = "1394"
+    else:
+        raise ValueError(
+            f"Unrecognized spectral window '{spectral_window}'; expected 'Si IV 1403' or 'Si IV 1394'."
+        )
+
     net_flux = (
         np.sqrt(2 * np.pi)
         * (iris_model_fit.amplitude_0 + iris_model_fit.amplitude_1)
         * iris_model_fit.stddev_1.quantity
-        / np.mean(si_iv_1403.axis_world_coords("wl")[0][1:] - si_iv_1403.axis_world_coords("wl")[0][:-1])
+        / np.mean(si_iv_spec.axis_world_coords("wl")[0][1:] - si_iv_spec.axis_world_coords("wl")[0][:-1]).to(u.nm)
     )
     core_shift = ((iris_model_fit.mean_1.quantity.to(u.nm)) - si_iv_core) / si_iv_core * (constants.c.to(u.km / u.s))
     sigma = (iris_model_fit.stddev_1.quantity.to(u.nm)) / si_iv_core * (constants.c.to(u.km / u.s))
 
-    npz_filename = f"iris_fit_results_{date_begin.replace(':','-')}.npz"
+    npz_filename = f"iris_fit_results_{line_tag}_{date_begin.replace(':','-')}.npz"
     npz_path = os.path.join(obs_data_dir, npz_filename)
     np.savez(
         npz_path,
@@ -219,7 +245,7 @@ def save_fit_results(iris_model_fit, si_iv_1403, date_begin, obs_data_dir):
         sigma=sigma.value,
         sigma_unit=str(sigma.unit),
     )
-    print(f"\nSaved fit results to {npz_path}")
+    print(f"\nSaved {spectral_window} fit results to {npz_path}")
 
 
 warnings.filterwarnings("ignore", category=UserWarning, append=True)
@@ -261,11 +287,11 @@ if __name__ == "__main__":
         
         # Read raster and perform fitting
         raster = read_files(raster_filename, memmap=False)
-        iris_model_fit, si_iv_1403 = fit_iris_si_iv(raster, client)
-        if iris_model_fit is None or si_iv_1403 is None:
+        iris_model_fit, si_iv_spec = fit_si_iv(raster, client)
+        if iris_model_fit is None or si_iv_spec is None:
             print(f"*** Skipping save for {date_begin_IRIS} - fitting was aborted.")
             continue
-        
+
         # Save fit results
-        save_fit_results(iris_model_fit, si_iv_1403, date_begin_IRIS, obs_data_dir)
+        save_fit_results(iris_model_fit, si_iv_spec, date_begin_IRIS, obs_data_dir)
 
