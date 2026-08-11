@@ -296,6 +296,7 @@ def make_vdem(snapname, snap,
                   ncpu = 4,
                   aia_logT = [4.6, 7.1, 0.1], muse_logT = [4.5, 7.2, 0.1], iris_logT = [4.2, 6.0, 0.1],
                   aia_vdop = [-500, 500, 100], muse_vdop = [-200, 200, 20], iris_vdop = [-100, 100, 5],
+                  author = 'VHH',
                   ):
     import numpy as np
     from muse import logger
@@ -307,7 +308,7 @@ def make_vdem(snapname, snap,
         strsnap = f'{snap:03d}'
         zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
     else:
-        vdem_dir = workdir
+        vdem_dir = os.path.join(workdir,"vdem")
         strsnap = f'{snap:06d}'
         zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
         if not compute and not os.path.isfile(zarr_file):
@@ -340,7 +341,6 @@ def make_vdem(snapname, snap,
             printf(f'*** Error: No method for reading {code} exists.')
         ec.component='z'
         ec.vdem_mode = 'allinterp'
-        ec.snap = ec.snaps[0]# strsnap
         ec.units = 'cgs'
         ec.tabin.extrapolate_type = "constant"
         if telescope == 'muse':
