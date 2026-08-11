@@ -311,7 +311,7 @@ def make_vdem(snapname, snap,
         strsnap = f'{snap:06d}'
         zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
         if not compute and not os.path.isfile(zarr_file):
-            zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}.zarr"))
+            zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
             if len(zarr_file) == 0:
                 logger.error(f'*** No VDEM file found')
                 return None, None
@@ -409,22 +409,25 @@ def make_vdem(snapname, snap,
         logger.info(f"Saved {bz_file}")
     else:
         try:
-            logger.info(f'*** Attempting read of Bz0 from {vdem_dir} snap {snap}')
+            logger.info(f'*** Read Bz0 from {vdem_dir} snap {snap}')
             bz0 = get_vdem_bz(vdem_dir, snap)
         except:
-            logger.warning(f'*** Cound not find any Bz file, returning None')
+            logger.warning(f'*** Cound not find any Bz0 file, returning None')
             bz0 = None
     return vdem, bz0
 
 # **************************************************
 
-def get_vdem_bz(bzdir, snap, z0 = -0.15, iz0 = None):
+def get_vdem_bz(bzdir, snap):
        import numpy as np
-       if iz0 == None:
-            bzfile = os.path.join(bzdir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
-       else:
-            bzfile = os.path.join(bzdir,f'Bz_iz0={iz0:03d}_{snap:06d}.npy')  
-       f = np.load(bzfile)
+       import glob as glob
+       strsnap = f'{snap:06d}'
+       bzfile = glob.glob(os.path.join(bzdir,f'Bz*{strsnap}*'))[0]
+       if os.path.isfile(bzfile+'.npz'):
+           file = np.load(bzfile, allow_pickle=True)
+           f = file['Bz']
+       else: # npy file
+           f = np.load(bzfile)
        return f
 
 # **************************************************
@@ -642,6 +645,9 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
    'cbp'         'mn4_np3d_10g_8mm'                 'np3D_10G_8Mm'
    'cbpx2'       'mn4_np3d_10g_8mm_2res'            'np3D_10G_8Mm_2xres'
    'plage'       'plage'                            'sanja'
+   'm-class'     'm-class'                          'M-class'
+   'qs-muram'    'qs-muram'                         'QS'
+   'mr1'         'mr1'                              'AR'
    """
    Simulations_Table = ascii.read(Simulations)
    if not os.path.exists(work) or help==True:
