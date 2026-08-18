@@ -113,7 +113,7 @@ def download_iris_raster(target_url, obs_data_dir):
         return raster_filename
 
 
-def fit_si_iv(raster, client):
+def fit_si_iv(raster, client, radcal=False):
     """
     Performs full fitting analysis on IRIS Si IV 1403 or Si IV 1394.
 
@@ -126,6 +126,8 @@ def fit_si_iv(raster, client):
         IRIS raster data loaded from read_files
     client : dask.distributed.Client
         Dask client for parallel processing
+    radcal: bool, optional
+        If True, perform radiometric calibration on the Si IV spectrogram before fitting.
 
     Returns:
     --------
@@ -133,6 +135,7 @@ def fit_si_iv(raster, client):
         (iris_model_fit, si_iv_spec) - Fitted model and the Si IV spectrogram
         that was fit
     """
+    from irispy.utils.spectrograph import radiometric_calibration
     raster_keys = list(raster.keys())
     if "Si IV 1403" in raster_keys:
         spectral_window = "Si IV 1403"
@@ -145,29 +148,36 @@ def fit_si_iv(raster, client):
         return None, None
 
     si_iv_spec = raster[spectral_window][-1]  # last raster in the series
-    normalized_unit = si_iv_spec.unit / u.s
-    exposure_time_reshaped = si_iv_spec.exposure_time.value[:, np.newaxis, np.newaxis]
-    clipped_data = np.maximum(si_iv_spec.data,0) #Filtering out non-positive values
-    normalized_data = clipped_data/ exposure_time_reshaped
-    normalized_data = np.where(np.isnan(normalized_data), 0, normalized_data) # can be nan because of the zero exposure time
-    normalized_si_iv_spec = SpectrogramCube(
-        normalized_data,
-        si_iv_spec.wcs,
-        meta=si_iv_spec.meta,
-        unit=normalized_unit,
-        uncertainty=si_iv_spec.uncertainty,
-        copy=True,
-    )
+    if not radcal:
+        normalized_unit = si_iv_spec.unit / u.s
+        exposure_time_reshaped = si_iv_spec.exposure_time.value[:, np.newaxis, np.newaxis]
+        clipped_data = np.maximum(si_iv_spec.data,0) #Filtering out non-positive values
+        normalized_data = clipped_data/ exposure_time_reshaped
+        normalized_data = np.where(np.isnan(normalized_data), 0, normalized_data) # can be nan because of the zero exposure time
+        normalized_si_iv_spec = SpectrogramCube(
+            normalized_data,
+            si_iv_spec.wcs,
+            meta=si_iv_spec.meta,
+            unit=normalized_unit,
+            uncertainty=si_iv_spec.uncertainty,
+            copy=True,
+        )
+    else:
+        normalized_si_iv_spec = radiometric_calibration(si_iv_spec)
+
     wl_sum = normalized_si_iv_spec.rebin((1, 1, normalized_si_iv_spec.data.shape[-1]), operation=np.sum)[0]
     spatial_mean = normalized_si_iv_spec.rebin((*normalized_si_iv_spec.data.shape[:-1], 1))[0, 0, :]
-    initial_model = m.Const1D(amplitude=1/si_iv_spec.exposure_time.value[0] * normalized_si_iv_spec.unit) + m.Gaussian1D(
-        amplitude=np.nanmax(spatial_mean.data) * normalized_si_iv_spec.unit, mean=si_iv_core, stddev=0.005 * u.nm
+    wavelength_axis = normalized_si_iv_spec.axis_world_coords("em.wl")[0].to(u.nm)
+    core_window = np.abs(wavelength_axis - si_iv_core) < 0.15 * u.nm  # adjusting to half-width to line width
+
+    initial_model = m.Const1D(amplitude=np.nanpercentile(spatial_mean.data[~core_window], 10) * normalized_si_iv_spec.unit) + m.Gaussian1D(
+        amplitude=np.nanmax(spatial_mean.data[core_window]) * normalized_si_iv_spec.unit, mean=si_iv_core, stddev=0.005 * u.nm
     )
 
     fitter = TRFLSQFitter()
     average_fit = fitter(
         initial_model,
-        spatial_mean.axis_world_coords("em.wl")[0].to(u.nm),
+        wavelength_axis,
         spatial_mean.data * spatial_mean.unit,
         filter_non_finite = True,  # Allow fitting with non-finite values
     )
@@ -180,7 +190,6 @@ def fit_si_iv(raster, client):
     # to evaluate the full helioprojective coordinate transform (expensive, and not
     # reliably picklable across worker processes) for every pixel, just to recover
     # a wavelength axis that is identical at every spatial position.
-    wavelength_axis = normalized_si_iv_spec.axis_world_coords("em.wl")[0].to(u.nm)
     # We can therefore fit the cube
     with warnings.catch_warnings():
         # There are several WCS warnings we just want to ignore
