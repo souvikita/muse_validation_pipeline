@@ -308,9 +308,9 @@ def make_vdem(snapname, snap,
         strsnap = f'{snap:03d}'
         zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
     else:
-        vdem_dir = os.path.join(workdir,"vdem")
+        vdem_dir = './'
         strsnap = f'{snap:06d}'
-        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
+        zarr_file = os.path.join(vdem_dir,f"*vdem_*_{strsnap}*.zarr")
         if not compute and not os.path.isfile(zarr_file):
             zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
             if len(zarr_file) == 0:
@@ -423,9 +423,13 @@ def get_vdem_bz(bzdir, snap):
        import glob as glob
        strsnap = f'{snap:06d}'
        bzfile = glob.glob(os.path.join(bzdir,f'Bz*{strsnap}*'))[0]
-       if os.path.isfile(bzfile+'.npz'):
+       filetype = bzfile.split('.')[-1]
+       if filetype == 'npz':
            file = np.load(bzfile, allow_pickle=True)
            f = file['Bz']
+       elif filetype == 'nc':
+           file = xr.open_dataset(bzfile)
+           f = file.B.values
        else: # npy file
            f = np.load(bzfile)
        return f
