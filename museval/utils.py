@@ -133,6 +133,12 @@ def get_response(vdem, date = None,
             raise EnvironmentError("The environment variable 'RESPONSE' is not set. Set it to the directory where response functions are stored.")
         resp_dir = os.environ['RESPONSE']
 
+    # Deciding the synthesis grids once. These flags must be evaluated BEFORE the
+    # defaulting block below, otherwise they are always False and the vdem
+    # pass-through branches never run.
+    use_vdem_logT = (lgtgmin is None and lgtgmax is None and lgtgstep is None)
+    use_vdem_vdop = (uzmin is None and uzmax is None and uzstep is None)
+
     # If not explicitly provided, derive logT and vdop grids from the input VDEM
     if lgtgmin is None:
         lgtgmin = float(np.min(vdem.logT))
@@ -152,10 +158,6 @@ def get_response(vdem, date = None,
 
     zarr_file,obs_date = find_response(date, units = units, delta_month = delta_month)
 
-    # Deciding the synthesis grids once
-    use_vdem_logT = (lgtgmin is None and lgtgmax is None and lgtgstep is None)
-    use_vdem_vdop = (uzmin is None and uzmax is None and uzstep is None)
-
     if use_vdem_logT:
         logT = xr.DataArray(np.asarray(vdem.logT.values, dtype=float), dims="logT")
     else:
@@ -168,19 +170,49 @@ def get_response(vdem, date = None,
         nV = int(round((uzmax - uzmin) / uzstep)) + 1
         vdop = np.linspace(uzmin, uzmin + (nV - 1) * uzstep, nV) * u.km / u.s
 
+    # read_response() works on xarray objects (it calls .data, .where(drop=True)
+    # and .sel/.interp on the vdop axis), so hand it a DataArray on the vdop dim.
+    # create_resp_func() below still takes the astropy Quantity.
+    vdop_kms = vdop.to_value(u.km / u.s)
+    vdop_xr = xr.DataArray(vdop_kms, dims="vdop", coords={"vdop": vdop_kms})
+
+    need_new_response = False
     if zarr_file is not None:
         logger.info(f'*** {zarr_file} already exists! Reading...')
-        response_all_DN = read_response(zarr_file,
-                                     logT=logT, ##vdem.logT, 
-                                     vdop=vdop.value, vdopmethod="linear",
-                                     gain = np.ones((len(chrange)))*18).compute() # note the use of the SAME VDOP!
-        if  np.array_equal(chrange, response_all_DN.channel):
-            logger.info("The channels of the response function match.")
-            return response_all_DN ##this is fine, no need to create a new response function
-        else:
+        # Check the file's NATIVE grid before interpolating: read_response() silently
+        # clips the requested logT/vdop down to whatever the stored file covers, which
+        # would hand back a response on a smaller grid than the VDEM. vdem_synthesis()
+        # is a raw einsum with no alignment, so that mismatch is fatal downstream.
+        r_native = xr.open_zarr(zarr_file)
+        channels_ok = np.array_equal(chrange, r_native.channel)
+        # Compare with a tolerance of a thousandth of a grid step: stored edges carry
+        # float noise (e.g. logT max = 6.399999999999994 for a 6.4 grid) and a strict
+        # comparison would reject files that do cover the request. read_response()
+        # snaps to the nearest requested point, so a sub-step shortfall clips nothing.
+        tol_logT = 1e-3 * abs(lgtgstep)
+        tol_vdop = 1e-3 * abs(uzstep)
+        covers = (float(r_native.logT.min()) <= float(logT.min()) + tol_logT
+                  and float(r_native.logT.max()) >= float(logT.max()) - tol_logT
+                  and float(r_native.vdop.min()) <= float(vdop_kms.min()) + tol_vdop
+                  and float(r_native.vdop.max()) >= float(vdop_kms.max()) - tol_vdop)
+
+        if not channels_ok:
             logger.info("The channels of the response function do not match the requested channels. Creating a new response function.")
             need_new_response = True ##Treating this as a flag to create a new response function
-            
+        elif not covers:
+            logger.info(f"*** Stored response covers logT [{float(r_native.logT.min()):.2f}, {float(r_native.logT.max()):.2f}]"
+                        f" vdop [{float(r_native.vdop.min()):.1f}, {float(r_native.vdop.max()):.1f}] km/s,"
+                        f" but logT [{float(logT.min()):.2f}, {float(logT.max()):.2f}]"
+                        f" vdop [{float(vdop_kms.min()):.1f}, {float(vdop_kms.max()):.1f}] km/s was requested.")
+            logger.info("*** Response function does not cover the requested grid. Creating a new response function.")
+            need_new_response = True
+        else:
+            logger.info("The channels of the response function match.")
+            response_all_DN = read_response(zarr_file,
+                                         logT=logT, ##vdem.logT,
+                                         vdop=vdop_xr, vdopmethod="linear",
+                                         gain = np.ones((len(chrange)))*18).compute() # note the use of the SAME VDOP!
+            return response_all_DN ##this is fine, no need to create a new response function
 
     else:
         need_new_response = True
@@ -195,13 +227,25 @@ def get_response(vdem, date = None,
                                            wavelength_range = wavelength_range,
                                            minimum_abundance = minimum_abundance,
                                            ) 
+        # aiapy.calibrate.util was renamed to .utils, and aiapy.calibrate/__init__.py
+        # does not import that submodule, so it has to be imported explicitly rather
+        # than reached by attribute access.
+        from aiapy.calibrate.utils import get_correction_table
         try:
-            correction_table = aiapy.calibrate.util.get_correction_table('JSOC')
+            correction_table = get_correction_table('JSOC')
             logger.info('*** Correction table taken from local JSOC installation')
-        except:
+        except Exception as e:
+            # Was a bare except, which silently turned a typo in the JSOC line into a
+            # confusing failure on the SSW line. Report why the fallback was taken.
+            logger.info(f'*** Could not reach JSOC ({type(e).__name__}: {e})')
             logger.info('*** Correction table taken from local SSW installation')
-            correction_table = aiapy.calibrate.util.get_correction_table('SSW')
+            correction_table = get_correction_table('SSW')
 
+        # Each channel's response carries its own scalar line_wvl, which xr.concat
+        # collapses to the first channel's value. Collect them so the concatenated
+        # result can be given a proper per-channel coordinate below.
+        ccd_gain = 18
+        line_wvls = []
         for ii_ch, ich in enumerate(chrange):
             ch = Channel(ich*u.angstrom)
             if date is None:
@@ -239,34 +283,43 @@ def get_response(vdem, date = None,
                     wvl=np.array(CI_resp.wavelength.data),
                     dx_pix=dx_pix,
                     dy_pix=dy_pix,
-                    gain=18,
+                    gain=ccd_gain,
                 )
             CI_resp_ph = CI_resp_ph.drop_vars("band")
-            
+
             # Generate the response function (in the DN units)
             CI_resp_comb_muse = convert_resp2muse_ciresp(
                 CI_resp_ph,
             )
-            if ii_ch == 0: 
+            line_wvls.append(float(np.asarray(CI_resp_comb_muse.line_wvl).ravel()[0]))
+            if ii_ch == 0:
                 reponse_all_DN = CI_resp_comb_muse
             else: 
                 reponse_all_DN = xr.concat([reponse_all_DN, CI_resp_comb_muse], dim="channel")
-        reponse_all_DN = reponse_all_DN.assign_coords(channel=("channel", chrange))   
-        save_response = True
-           
+        reponse_all_DN = reponse_all_DN.assign_coords(channel=("channel", chrange))
+        # Restore the per-channel coordinates that read_response() builds on the cached
+        # path, so both paths return the same structure. Without this, line_wvl stays a
+        # scalar (the first channel's) and gain is absent -- and muse's own synthesis
+        # does response.line_wvl.sel(channel=...), which needs a channel-indexed coord.
+        reponse_all_DN = reponse_all_DN.assign_coords(
+            line_wvl=("channel", np.array(line_wvls, dtype=float)),
+            gain=("channel", np.full(len(chrange), float(ccd_gain))),
+        )
+        reponse_all_DN.line_wvl.attrs.setdefault("units", str(u.AA))
+
     if obs_date is None:
-        response_all_DN = reponse_all_DN.assign_attrs(date = "None")
+        reponse_all_DN = reponse_all_DN.assign_attrs(date = "None")
     else:
         reponse_all_DN = reponse_all_DN.assign_attrs(date = obs_date.strftime("%d-%b-%Y"))
 #
     reponse_all_DN = reponse_all_DN.compute()
 #
-    if obs_date is None:
-        zarr_file = f'aia_resp_{units}.zarr'
-    else:
-        zarr_file = f'aia_resp_{units}_{obs_date.strftime("%b%y")}.zarr'
-    zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
     if save_response:
+        if obs_date is None:
+            zarr_file = f'aia_resp_{units}.zarr'
+        else:
+            zarr_file = f'aia_resp_{units}_{obs_date.strftime("%b%y")}.zarr'
+        zarr_file = os.path.join(os.environ['RESPONSE'],zarr_file)
         try:
             reponse_all_DN.to_zarr(f'{zarr_file}', mode = "w")
             logger.info(f"Saved response to {f'{zarr_file}'}")
@@ -448,13 +501,36 @@ def aia_synthesis(aia_resp, work_dir, vdem_path,
     logger.info(f'*** Loading {files} into vdem')
     vdem = xr.open_zarr(files).compute()
 
-    # vdem_cut
-    #vdem_cut = vdem.sel(logT=aia_resp.logT, method = "nearest")
-    #vdem_cut = vdem_cut.compute()
+    # Put the response and the VDEM on a common grid. vdem_synthesis() is a raw
+    # einsum over .data with no xarray alignment, so the logT/vdop axes must match
+    # element-for-element or it fails with an opaque broadcast error. Same approach
+    # as muse.utils.modular_l2l3_pipeline.
+    # vdop: extend the response onto the VDEM's velocity grid, zero outside the range
+    # it was computed over (the AIA response is nearly flat in vdop, so this is benign).
+    aia_resp = aia_resp.interp(vdop=vdem.vdop).fillna(0)
+    # logT: keep the VDEM temperatures the response actually covers, then put the
+    # response on exactly those points. Matched with a tolerance and interpolated
+    # rather than compared exactly (np.intersect1d), because stored grids carry float
+    # noise -- e.g. a 6.4 edge stored as 6.399999999999994 -- which matches nothing
+    # and would silently synthesize an all-zero image.
+    resp_logT = np.asarray(aia_resp.logT, dtype=float)
+    vdem_logT = np.asarray(vdem.logT, dtype=float)
+    tol = 1e-3 * float(np.median(np.diff(vdem_logT))) if vdem_logT.size > 1 else 1e-6
+    covered = (vdem_logT >= resp_logT.min() - tol) & (vdem_logT <= resp_logT.max() + tol)
+    if not covered.all():
+        dropped = vdem_logT[~covered]
+        em_lost = float(vdem.vdem.isel(logT=np.flatnonzero(~covered)).sum() / vdem.vdem.sum())
+        logger.info(f"*** Response does not cover logT {dropped.min():.2f}-{dropped.max():.2f}"
+                    f" present in the VDEM: truncating, {em_lost:.2%} of the EM is discarded.")
+    vdem = vdem.isel(logT=np.flatnonzero(covered))
+    # "extrapolate" only ever covers the sub-step float noise at the edges; anything
+    # genuinely outside the response range was already dropped above.
+    aia_resp = aia_resp.interp(logT=vdem.logT, kwargs={"fill_value": "extrapolate"})
+
     #Synthesis AIA observations using the response function and VDEM
     muse_AIA = vdem_synthesis(vdem,
                               aia_resp,
-                              sum_over=["logT","vdop"]) 
+                              sum_over=["logT","vdop"])
     if swap_dims:
        muse_AIA = muse_AIA.swap_dims({"band":"line"}) # Needed in the below?
     return muse_AIA
