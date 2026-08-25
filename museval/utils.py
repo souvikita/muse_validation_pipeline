@@ -361,17 +361,21 @@ def make_vdem(snapname, snap,
         strsnap = f'{snap:03d}'
         zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
     else:
-        vdem_dir = os.path.join(workdir,"vdem")
+        vdem_dir = './'
         strsnap = f'{snap:06d}'
-        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}.zarr")
-        if not compute and not os.path.exists(zarr_file):
-            zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
-            if len(zarr_file) == 0:
-                logger.error(f'*** No VDEM file found')
-                return None, None
-            else:
-                zarr_file = zarr_file[0]
-                logger.info(f"*** Reading {zarr_file}")
+        try:
+            zarr_file = glob.glob(os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}.zarr"))[0]
+        except IndexError:
+            if not compute:
+                zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
+                if len(zarr_file) == 0:
+                    logger.error(f'*** No VDEM file found')
+                    return None, None
+                else:
+                    zarr_file = zarr_file[0]
+                    logger.info(f"*** Reading {zarr_file}")
+        else:
+            logger.info(f"*** Reading {zarr_file}")
     if compute:      
         pc.DEFAULTS.ARRAY_MBYTES_MAX = 2.7e+5
         if code == 'Bifrost':
@@ -464,7 +468,7 @@ def make_vdem(snapname, snap,
     else:
         try:
             logger.info(f'*** Read Bz0 from {vdem_dir} snap {snap}')
-            bz0 = get_vdem_bz(vdem_dir, snap)
+            bz0 = get_vdem_bz(vdem_dir, strsnap)
         except:
             logger.warning(f'*** Cound not find any Bz0 file, returning None')
             bz0 = None
@@ -472,14 +476,17 @@ def make_vdem(snapname, snap,
 
 # **************************************************
 
-def get_vdem_bz(bzdir, snap):
+def get_vdem_bz(bzdir, strsnap):
        import numpy as np
        import glob as glob
-       strsnap = f'{snap:06d}'
        bzfile = glob.glob(os.path.join(bzdir,f'Bz*{strsnap}*'))[0]
-       if os.path.isfile(bzfile+'.npz'):
+       filetype = bzfile.split('.')[-1]
+       if filetype == 'npz':
            file = np.load(bzfile, allow_pickle=True)
            f = file['Bz']
+       elif filetype == 'nc':
+           file = xr.open_dataset(bzfile)
+           f = file.B.values
        else: # npy file
            f = np.load(bzfile)
        return f
@@ -822,3 +829,4 @@ def gauss_kernel(size=3,sigma=1):
           diff_sq = (i-center)**2+(j-center)**2
           kernel[i,j]=np.exp(-diff_sq/(2*sigma**2))
     return kernel/np.sum(kernel)
+
