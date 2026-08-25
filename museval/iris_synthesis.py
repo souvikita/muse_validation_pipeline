@@ -735,24 +735,34 @@ def iris_total_line(vdem_sel, resp,
 def iris_intensity_moment(iris_file, 
                           line = "Si IV 1403",
                           linewvl = [1402,1404],
-                          contwvl = [1399,1400]):
+                          contwvl = [1399,1400],
+                          radiometric = True):
     from irispy.io import read_files
+    from irispy.utils.spectrograph import radiometric_calibration
     import astroscrappy
     from astropy.visualization import quantity_support
+    import astropy.units as u
     from sunpy.map import Map
     quantity_support()
     # read and clean raster data
     raster = read_files(iris_file)
+    iny = raster[line][0]
     wvl = raster[line][0].axis_world_coords("wl")[0].to_value("angstrom")
+    if radiometric:
+        iny = radiometric_calibration(iny)
     clean_raster = raster[line][0].data*0.
     for i in range(np.shape(clean_raster)[0]):
-        raster_slit = raster[line][0][i]
+        raster_slit = iny[i]
         _, clean_raster[i,:,:] = astroscrappy.detect_cosmics(raster_slit.data)
     # compute moment
     iw0, iw1 = np.argmin(np.abs(wvl-linewvl[0])),np.argmin(np.abs(wvl-linewvl[1]))
     ic0, ic1 = np.argmin(np.abs(wvl-contwvl[0])),np.argmin(np.abs(wvl-contwvl[1]))
-    itot = np.trapz(clean_raster[:,:,iw0:iw1], axis=2)
-    icont = np.trapz(clean_raster[:,:,ic0:ic1], axis=2)
+    if radiometric:
+        itot = np.trapz(clean_raster[:,:,iw0:iw1], x = wvl[iw0:iw1], axis=2)
+        icont = np.trapz(clean_raster[:,:,ic0:ic1], x = wvl[ic0:ic1], axis=2)
+    else:
+        itot = np.trapz(clean_raster[:,:,iw0:iw1], axis=2)
+        icont = np.trapz(clean_raster[:,:,ic0:ic1], axis=2)
     return itot,icont
 
 def gauss_kernel(size=3,sigma=1):

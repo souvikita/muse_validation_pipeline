@@ -347,7 +347,7 @@ def make_vdem(snapname, snap,
                   emiss_mode = 'notrac_noopa',
                   chunks = 128,
                   ncpu = 4,
-                  aia_logT = [4.6, 7.1, 0.1], muse_logT = [4.5, 7.2, 0.1], iris_logT = [4.2, 6.0, 0.1],
+                  aia_logT = [4.6, 7.3, 0.1], muse_logT = [4.5, 7.3, 0.1], iris_logT = [4.2, 6.1, 0.1],
                   aia_vdop = [-500, 500, 100], muse_vdop = [-200, 200, 20], iris_vdop = [-100, 100, 5],
                   author = 'VHH',
                   ):
@@ -363,8 +363,8 @@ def make_vdem(snapname, snap,
     else:
         vdem_dir = os.path.join(workdir,"vdem")
         strsnap = f'{snap:06d}'
-        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}")
-        if not compute and not os.path.isfile(zarr_file):
+        zarr_file = os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}.zarr")
+        if not compute and not os.path.exists(zarr_file):
             zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
             if len(zarr_file) == 0:
                 logger.error(f'*** No VDEM file found')
@@ -412,6 +412,7 @@ def make_vdem(snapname, snap,
             logger.warning(f'*** No such telescope {telescope}. Returning')
             return None, None
         ec.rcoords_wavelength_A = opa_wvl # wavelength of opacity if 'opa' is chosen in mode
+        print(f'vdop {vdop}')
         vdem = ec.vdem_pipeline(los_dim='z', 
                                 iz0 = iz0, 
                                 tg_percent = 0.1, 
