@@ -502,48 +502,52 @@ def iris_validation_plot(odate,
                          resp,
                          line = 'Si IV 1403',
                          ulim = 50., num_bins = 30, Log = False,
-                         unit = 'DN/s',
+                         unit = r'erg/s/cm$^2$/sr',
+                         u_l = 1., # Conversion factor of length -> cgs
                          code = 'Bifrost', Region = 'Quiet Sun',
                          hdr = None, exptime = 1.,
-                         iris_alt = None,
                          save = False,
                          dir = './figs',
-                         convolve = True,
                            ):
     arcsec2Mm = 0.729
-    date = dt.datetime.strftime(odate,'%Y-%m-%dT%H:%M:%S')
-    sdate = dt.datetime.strftime(odate,'%Y%m%d_%H%M')
-    iris_file = glob.glob(os.path.join(iris_dir,f'iris_l2*{sdate}*raster*.fits'))[0]
-    bf_data = iris_total_line(vdem_sel, resp, iris_file = iris_file, convolve = convolve) 
-    fdate = dt.datetime.strftime(odate,'%Y-%m-%dT%H-%M-00')
-    file = np.load(os.path.join(iris_dir,f'iris_fit_results_{fdate}.npz'))
+    dxpix = 0.33
+    bf_data = iris_total_line(vdem_sel, resp, line = line)
+    fdate = dt.datetime.strftime(odate,'%Y-%m-%d')
+#    fdate = dt.datetime.strftime(odate,'%Y-%m-%dT%H-%M-00')
+    npz_file = glob.glob(os.path.join(iris_dir,f'*iris_fit_results*{fdate}*.npz'))[0] 
+    file = np.load(npz_file)
     intensity = 'gaussian'
-    if hdr is None:
-        iris_flux = file['net_flux']
+    iris_flux = file['flux']
+    try:
+        mask = file['mask']
+    except KeyError:
+    # Catches any other unexpected standard exception and saves the message to 'e'
+        print(f"No mask found in {npz_file}")
+        data = np.ravel(iris_flux)
+        len_data = len(data)
+        iris_vel = file['core_shift']
+        uzdata = np.ravel(iris_vel)
     else:
-        exptime = hdr['exptime']
-        if unit == 'DN/s':
-            iris_flux = file['net_flux']/exptime # Not needed: Souvik says he has converted to DN/s
-        else:
-            iris_flux = file['net_flux']
-    if iris_alt is not None:
-        if unit == 'DN/s':
-            iris_flux = iris_alt/exptime
-        else:
-            iris_flux = iris_alt
-        intensity = 'moment'
-    data = np.ravel(iris_flux)
+        masked = np.ma.masked_invalid(mask)
+        len_data = len(mask[~masked.mask])
+        iris_flux = iris_flux*mask
+        data = np.ravel(iris_flux[~masked.mask])
+        iris_vel = file['core_shift']*mask
+        uzdata = np.ravel(iris_vel[~masked.mask])
     data[data < 1] = 1.
     low,high = np.nanpercentile(data, [3,99.5])
     hlow, hhigh = low,high
-    extent = [0,bf_data['fovx'],0,bf_data['fovy']]
+    if hdr is None:
+        extent = [0,np.shape(iris_flux)[0]*dxpix,0,np.shape(iris_flux)[1]*dxpix]
+    else:
+        extent = [0,hdr['FOVX'],0,hdr['FOVY']]
     #
     bf = bf_data['bf']
     if unit == 'DN':
         bf *= exptime
     low_bf,high_bf = np.nanpercentile(bf, [3,99.5])
-    extent_bf = np.array([np.min(vdem_sel.x.to_numpy())/1.e8,np.max(vdem_sel.x.to_numpy())/1.e8,
-                np.min(vdem_sel.y.to_numpy())/1.e8,np.max(vdem_sel.y.to_numpy())/1.e8])/arcsec2Mm
+    extent_bf = np.array([np.min(vdem_sel.x.to_numpy())/u_l,np.max(vdem_sel.x.to_numpy())/u_l,
+                np.min(vdem_sel.y.to_numpy())/u_l,np.max(vdem_sel.y.to_numpy())/u_l])/arcsec2Mm
 
     fig,ax = plt.subplots(2,3, figsize = (16,10))
     if hdr is None:
@@ -565,8 +569,8 @@ def iris_validation_plot(odate,
         data_mean = np.nanmean(data)
         code_mean = np.nanmean(bf)
     ax[0][0].hist(data, bins=num_bins, range = (hlow,hhigh), 
-              label=f'IRIS {OBSID} {date}', cumulative=True, histtype='step',
-              weights=np.ones(len(data)) / len(data), color = 'blue')
+              label=f'IRIS {OBSID} {fdate}', cumulative=True, histtype='step',
+              weights=np.ones(len_data) / len_data, color = 'blue')
     ax[0][0].axvline(x=data_mean, lw=1, ls='-', color = 'blue')
 
     ax[0][0].hist(bf, bins=num_bins, range = (hlow_bf,hhigh_bf), 
@@ -615,7 +619,7 @@ def iris_validation_plot(odate,
     cbar.set_label(rf'IRIS {line} {unit}')
 
     if unit == 'DN':
-        bf_data['zeroth'] *= 1.
+        bf_data['zeroth'] *= exptime
     if Log:
         im = ax[0][2].imshow(bf_data['zeroth'].T, 
                              norm = colors.LogNorm(vmin = low, vmax = high), 
@@ -639,23 +643,21 @@ def iris_validation_plot(odate,
     cbar.set_label(rf'{code} {line} {unit}')
 
 # Velocities
-    iris_vel = file['core_shift']
-    uzdata = np.ravel(iris_vel)
-    low,high = np.nanpercentile(uzdata, [0,99.5])
+    low,high = np.nanpercentile(uzdata, [0.5,99.5])
     low,high = -1*ulim,ulim
     uzbf = bf_data['uzbf']
     low_bf,high_bf = np.nanpercentile(uzbf, [0,99.5])
     low_bf,high_bf = -1*ulim,ulim
 
-    ax[1][0].hist(uzdata, bins=num_bins, range = (low,high), label=f'IRIS HOP 307 {date}', histtype='step',
-               weights=np.ones(len(uzdata)) / len(uzdata), color = 'blue')
+    ax[1][0].hist(uzdata, bins=num_bins, range = (low,high), label=f'IRIS HOP 307 {fdate}', histtype='step',
+               weights=np.ones(len_data) / len_data, color = 'blue')
     ax[1][0].axvline(x=np.nanmean(uzdata), lw=1, ls='-', color = 'blue')
 
     ax[1][0].hist(uzbf, bins=num_bins, range = (low_bf,high_bf), label=f'{code} {Region}', histtype='step', 
                weights=np.ones(len(uzbf)) / len(uzbf),color='tab:purple',ls='-.')
     ax[1][0].axvline(x=np.mean(uzbf), color='tab:purple', lw=1, ls='-.')
 
-    ax[1][0].set_xlabel(fr'{line} $u_z$ [km$^{{-1}}$]')
+    ax[1][0].set_xlabel(fr'{line} $u_z$ [km$^{-1}$]')
     ax[1][0].set_ylabel('ECDF')
     #ax[1][0].legend(loc='lower left')
 
@@ -696,40 +698,46 @@ def iris_validation_plot(odate,
       plt.savefig(savefile)
 
 def iris_total_line(vdem_sel, resp,
-                    iris_file = None,
+                    unit = r'erg/s/cm$^2$/sr',
                     code = 'Bifrost',
                     line = 'Si IV 1403',
                     resolution_iris = 0.33,
                     dx_sim = 0.1, convolve = False, add_noise = True,
                     readout = 20., # e- readout noise
                     ):
-    
-    from scipy import signal
-    arcsec2Mm = 0.729
-    resp_dn, fovx, fovy, cdelty, cdeltw = transform_iris_resp_units(resp, iris_file, line)
-    #spec_dn = (vdem_sel.vdem.sum(dim="vdop") * resp_dn.SG_resp.sel(vdop=0).sum(dim="SG_xpixel")).squeeze().sum(dim="logT")
-    spec_dn = vdem_synthesis(vdem_sel, resp_dn, sum_over=['logT', 'vdop'])
-    mom_dn = calculate_moments(spec_dn, moment_dim='SG_xpixel')
-    zeroth =  mom_dn["0th"].sel(line='Si IV 1402.77').squeeze().to_numpy()
+    fovx = vdem_sel.x.max()-vdem_sel.x.min()
+    fovy = vdem_sel.y.max()-vdem_sel.y.min()
+    if unit.split('/')[0] == 'DN':
+        resp_dn, fovx, fovy, cdelty, cdeltw = ms.transform_iris_resp_units(resp, iris_file, line)
+        spec_dn = vdem_synthesis(vdem_sel, resp_dn, sum_over=['logT', 'vdop'])
+        mom = calculate_moments(spec_dn, moment_dim='SG_xpixel')
+        zeroth =  mom_dn["0th"].sel(line=line).squeeze().to_numpy()
+    elif unit.split('/')[0] == 'erg':
+        spec = vdem_synthesis(vdem_sel, resp, sum_over=['logT', 'vdop'])
+        mom = calculate_moments(spec, moment_dim='wavelength')
+        dlam = (spec.wavelength.max().values-spec.wavelength.min().values)/np.shape(spec.wavelength)[0]
+        zeroth =  mom[', 0th mom'].sel(line=line).squeeze().to_numpy()*dlam
+    else:
+        print(f'No such unit {unit}!!!')
+        return None
     if convolve:
+        arcsec2Mm = 0.729
         fwhm = 2.*np.sqrt(2*np.log(2))
         sptbin = resolution_iris*arcsec2Mm/dx_sim/fwhm
-        gauss_kern = gauss_kernel(size=int(10*sptbin),sigma=sptbin)
+        gauss_kern = ms.gauss_kernel(size=int(4*sptbin),sigma=sptbin)
         zeroth = signal.convolve2d(zeroth,gauss_kern,mode='same',boundary='wrap')
-    if add_noise:
+    if add_noise and unit.split('/')[0] == 'DN':
         DN_read = readout/10.
         img = np.random.rand(vdem_sel.x.size, vdem_sel.y.size)
         noise = np.random.normal(DN_read/2., DN_read, img.shape)
         noise[noise < 0.] = 0.
         zeroth = zeroth + noise 
-    bf = zeroth.ravel() 
-    #cdeltw_sim = (resp.SG_wvl.to_numpy()[0][1]-resp.SG_wvl.to_numpy()[0][0])
-    #bf *= cdeltw_sim/cdeltw[line]  # correcting for difference wvl pixel size in sim and iris
-    first = mom_dn["1st"].sel(line='Si IV 1402.77').squeeze().to_numpy()
+    bf = zeroth.ravel()
+    first = mom[', 1st mom'].sel(line=line).squeeze().to_numpy()
     if code == 'Bifrost':
-        first = -1*first # Left handed -> right handed reference system
+        first = -1*first # z-axis in Bifrost is "upside down"
     uzbf = first.ravel()
-    second = mom_dn["2nd"].sel(line='Si IV 1402.77').squeeze().to_numpy()
+    second = mom[', 2nd mom'].sel(line=line).squeeze().to_numpy()
     return {"zeroth":zeroth, "first":first, "second":second, "fovx":fovx, "fovy":fovy, "bf":bf, "uzbf":uzbf} 
 
 def iris_intensity_moment(iris_file, 

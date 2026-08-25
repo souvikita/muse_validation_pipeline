@@ -347,7 +347,7 @@ def make_vdem(snapname, snap,
                   emiss_mode = 'notrac_noopa',
                   chunks = 128,
                   ncpu = 4,
-                  aia_logT = [4.6, 7.1, 0.1], muse_logT = [4.5, 7.2, 0.1], iris_logT = [4.2, 6.0, 0.1],
+                  aia_logT = [4.6, 7.3, 0.1], muse_logT = [4.5, 7.3, 0.1], iris_logT = [4.2, 6.0, 0.1],
                   aia_vdop = [-500, 500, 100], muse_vdop = [-200, 200, 20], iris_vdop = [-100, 100, 5],
                   author = 'VHH',
                   ):
@@ -363,15 +363,19 @@ def make_vdem(snapname, snap,
     else:
         vdem_dir = './'
         strsnap = f'{snap:06d}'
-        zarr_file = os.path.join(vdem_dir,f"*vdem_*_{strsnap}*.zarr")
-        if not compute and not os.path.isfile(zarr_file):
-            zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
-            if len(zarr_file) == 0:
-                logger.error(f'*** No VDEM file found')
-                return None, None
-            else:
-                zarr_file = zarr_file[0]
-                logger.info(f"*** Reading {zarr_file}")
+        try:
+            zarr_file = glob.glob(os.path.join(vdem_dir,f"{telescope}_vdem_{code}_{strsnap}.zarr"))[0]
+        except IndexError:
+            if not compute:
+                zarr_file = glob.glob(os.path.join(vdem_dir,f"*{snap:06d}*.zarr"))
+                if len(zarr_file) == 0:
+                    logger.error(f'*** No VDEM file found')
+                    return None, None
+                else:
+                    zarr_file = zarr_file[0]
+                    logger.info(f"*** Reading {zarr_file}")
+        else:
+            logger.info(f"*** Reading {zarr_file}")
     if compute:      
         pc.DEFAULTS.ARRAY_MBYTES_MAX = 2.7e+5
         if code == 'Bifrost':
@@ -463,7 +467,7 @@ def make_vdem(snapname, snap,
     else:
         try:
             logger.info(f'*** Read Bz0 from {vdem_dir} snap {snap}')
-            bz0 = get_vdem_bz(vdem_dir, snap)
+            bz0 = get_vdem_bz(vdem_dir, strsnap)
         except:
             logger.warning(f'*** Cound not find any Bz0 file, returning None')
             bz0 = None
@@ -471,10 +475,9 @@ def make_vdem(snapname, snap,
 
 # **************************************************
 
-def get_vdem_bz(bzdir, snap):
+def get_vdem_bz(bzdir, strsnap):
        import numpy as np
        import glob as glob
-       strsnap = f'{snap:06d}'
        bzfile = glob.glob(os.path.join(bzdir,f'Bz*{strsnap}*'))[0]
        filetype = bzfile.split('.')[-1]
        if filetype == 'npz':
@@ -825,3 +828,4 @@ def gauss_kernel(size=3,sigma=1):
           diff_sq = (i-center)**2+(j-center)**2
           kernel[i,j]=np.exp(-diff_sq/(2*sigma**2))
     return kernel/np.sum(kernel)
+
