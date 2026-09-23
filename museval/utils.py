@@ -349,12 +349,40 @@ def make_vdem(snapname, snap,
                   ncpu = 4,
                   aia_logT = [4.6, 7.3, 0.1], muse_logT = [4.5, 7.3, 0.1], iris_logT = [4.2, 6.1, 0.1],
                   aia_vdop = [-500, 500, 100], muse_vdop = [-200, 200, 20], iris_vdop = [-100, 100, 5],
-                  author = 'VHH',
+                  author = 'VHH_SB',
+                  eos_mode = 'aux',
+                  explicit_grids = True,
+                  dst = 'pc_vdem_pipeline',
+                  photosphere_check = False,
                   ):
+    """Compute (or read) a VDEM for one snapshot.
+
+    The ``*_logT``/``*_vdop`` arguments are ``[min, max, step]`` triples giving the
+    bin centres, inclusive of ``max`` (see ``pc_patches.grid_from_spec``).
+
+    eos_mode : str, default 'aux'
+        'aux' takes T from the simulation's own output -- 'tg' for Bifrost, eosT for
+        MURaM -- instead of an EOS lookup table.  Bifrost's table tops out at
+        4.97e6 K and constant extrapolation silently clamps everything above it,
+        which wrecked every Bifrost VDEM made before this.  See museval.pc_patches.
+    explicit_grids : bool, default True
+        True: use the logT/vdop grids exactly as given.
+        False: old behaviour -- PlasmaCalcs.vdem_pipeline infers the grids from a
+        volume-weighted histogram, and the triples above can only narrow them.
+        This drops the corona and the top bin; keep it only to reproduce VDEMs
+        made before this fix.
+    dst : str
+        Directory for the diagnostic PNGs.  Note the VDEM itself is now written
+        only by this function's own ``save``/``save_netcdf`` block; with
+        explicit_grids=True, vdem_pipeline no longer writes a second copy here.
+    """
     import numpy as np
     from muse import logger
     import PlasmaCalcs as pc
     from PlasmaCalcs.tools import _xarray_save_prep
+    from .pc_patches import (patch_plasmacalcs, grid_from_spec, vdem_on_grid,
+                             vdem_to_dataset as _vdem_to_dataset)
+    patch_plasmacalcs()
     os.chdir(workdir)
     if code == 'Bifrost':
         vdem_dir = os.path.join(workdir,"vdem")
@@ -382,6 +410,7 @@ def make_vdem(snapname, snap,
             ec = pc.BifrostCalculator(f'{snapname}_{snap:03d}.idl')
             ec.emiss_mode = 'notrac_noopa'
             ec.snap = f"{snap:03d}"
+            ec.eos_mode = eos_mode        # 'aux' -> T from aux 'tg', not the EOS table
             iz0 = None
         elif code == 'MURaM':
             ec = pc.MuramCalculator()
@@ -392,14 +421,14 @@ def make_vdem(snapname, snap,
                 ec.units="si"
                 bz0 = ec("B").isel(z=iz0).to_numpy()
             ec.emiss_mode = emiss_mode
-            ec.eos_mode = 'aux'
+            ec.eos_mode = eos_mode
             ec.eos_mode_ne = eos_mode_ne
         else:
             printf(f'*** Error: No method for reading {code} exists.')
         ec.component='z'
         ec.vdem_mode = 'allinterp'
         ec.units = 'cgs'
-        ec.tabin.extrapolate_type = "constant"
+        ec.tabin.extrapolate_kind = "constant"   # was extrapolate_type, which is not an attribute
         if telescope == 'muse':
             vdop = muse_vdop
             logT = muse_logT
@@ -417,7 +446,23 @@ def make_vdem(snapname, snap,
             return None, None
         ec.rcoords_wavelength_A = opa_wvl # wavelength of opacity if 'opa' is chosen in mode
         print(f'vdop {vdop}')
-        vdem = ec.vdem_pipeline(los_dim='z', 
+        if explicit_grids:
+            logT_grid, vdop_grid = grid_from_spec(logT), grid_from_spec(vdop)
+            logger.info(f'*** logT {logT_grid[0]}..{logT_grid[-1]} ({len(logT_grid)} bins), '
+                        f'vdop {vdop_grid[0]}..{vdop_grid[-1]} ({len(vdop_grid)} bins)')
+            vdem = vdem_on_grid(ec, logT_grid, vdop_grid,
+                                los_dim = 'z',
+                                iz0 = iz0,
+                                modelname = snapname,
+                                author = author,
+                                chunks = chunks,
+                                ncpu = ncpu,
+                                dst = dst,
+                                photosphere_check = photosphere_check,
+                                )
+            vdem = _vdem_to_dataset(vdem, ec)
+        else:
+          vdem = ec.vdem_pipeline(los_dim='z',
                                 iz0 = iz0, 
                                 tg_percent = 0.1, 
                                 dlogT = logT[2],
