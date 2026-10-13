@@ -65,7 +65,7 @@ def make_line_response(ionstr = ["si_4"],
                        abundance   = "sun_coronal_2021_chianti",
                        lgtgmin     = 4.0, lgtgmax     = 6.0, lgtgstep    = 0.1,                  # in log10
                        uzmax       = 200.0, uzmin       = -200.0, uzstep      = 5.0,             # km/s
-                       instr_width = 0.0, # km/s
+                       instr_width = 0.0, # sigma in Angstrom (create_resp_func), not km/s
                        iris_file = None,
                        minimum_abundance = None,
                        ):
@@ -704,19 +704,20 @@ def iris_total_line(vdem_sel, resp,
                     resolution_iris = 0.33,
                     dx_sim = 0.1, convolve = False, add_noise = True,
                     readout = 20., # e- readout noise
+                    iris_file = None, # needed for unit = 'DN...'
                     ):
     fovx = vdem_sel.x.max()-vdem_sel.x.min()
     fovy = vdem_sel.y.max()-vdem_sel.y.min()
     if unit.split('/')[0] == 'DN':
-        resp_dn, fovx, fovy, cdelty, cdeltw = ms.transform_iris_resp_units(resp, iris_file, line)
+        resp_dn, fovx, fovy, cdelty, cdeltw = transform_iris_resp_units(resp, iris_file, line)
         spec_dn = vdem_synthesis(vdem_sel, resp_dn, sum_over=['logT', 'vdop'])
         mom = calculate_moments(spec_dn, moment_dim='SG_xpixel')
-        zeroth =  mom_dn["0th"].sel(line=line).squeeze().to_numpy()
+        zeroth =  mom["0th"].sel(line=line).squeeze().to_numpy()
     elif unit.split('/')[0] == 'erg':
         spec = vdem_synthesis(vdem_sel, resp, sum_over=['logT', 'vdop'])
         mom = calculate_moments(spec, moment_dim='wavelength')
         dlam = (spec.wavelength.max().values-spec.wavelength.min().values)/np.shape(spec.wavelength)[0]
-        zeroth =  mom[', 0th mom'].sel(line=line).squeeze().to_numpy()*dlam
+        zeroth =  mom['0th'].sel(line=line).squeeze().to_numpy()*dlam
     else:
         print(f'No such unit {unit}!!!')
         return None
@@ -724,7 +725,8 @@ def iris_total_line(vdem_sel, resp,
         arcsec2Mm = 0.729
         fwhm = 2.*np.sqrt(2*np.log(2))
         sptbin = resolution_iris*arcsec2Mm/dx_sim/fwhm
-        gauss_kern = ms.gauss_kernel(size=int(4*sptbin),sigma=sptbin)
+        from scipy import signal
+        gauss_kern = gauss_kernel(size=int(4*sptbin),sigma=sptbin)
         zeroth = signal.convolve2d(zeroth,gauss_kern,mode='same',boundary='wrap')
     if add_noise and unit.split('/')[0] == 'DN':
         DN_read = readout/10.
@@ -733,11 +735,11 @@ def iris_total_line(vdem_sel, resp,
         noise[noise < 0.] = 0.
         zeroth = zeroth + noise 
     bf = zeroth.ravel()
-    first = mom[', 1st mom'].sel(line=line).squeeze().to_numpy()
+    first = mom['1st'].sel(line=line).squeeze().to_numpy()
     if code == 'Bifrost':
         first = -1*first # z-axis in Bifrost is "upside down"
     uzbf = first.ravel()
-    second = mom[', 2nd mom'].sel(line=line).squeeze().to_numpy()
+    second = mom['2nd'].sel(line=line).squeeze().to_numpy()
     return {"zeroth":zeroth, "first":first, "second":second, "fovx":fovx, "fovy":fovy, "bf":bf, "uzbf":uzbf} 
 
 def iris_intensity_moment(iris_file, 
