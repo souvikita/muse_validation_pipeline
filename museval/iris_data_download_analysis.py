@@ -40,7 +40,7 @@ warnings.filterwarnings("ignore", category=UserWarning, append=True)
 if __name__ == "__main__":
     client = Client()
     eis_data_path = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/Plage_datasets/' #This is an absolute path. I don't like it :/
-    obs_dates = ascii.read(eis_data_path+'Plage_observations_viggo.txt') #Plage_observations_viggo.txt is from Viggo 
+    obs_dates = ascii.read(eis_data_path+'Plage_observations_viggo.txt') #Plage_observations_viggo.txt is from Viggo
     obs_dates.add_index("date_begin_EIS")
     for date in obs_dates["date_begin_EIS"]:
         url_base = 'https://www.lmsal.com/hek/hcr?cmd=search-events-corr&outputformat=json&startTime=2025-07-08T00:00&stopTime=2025-07-09T00:00&instrument=IRIS&hasData=true&hideMostLimbScans=true&optionalcorr=SOT&optionalcorr=SOTSP&optionalcorr=XRT&requiredcorr=EIS'
@@ -52,7 +52,7 @@ if __name__ == "__main__":
         os.makedirs(obs_data_dir, exist_ok=True)
         # output = !wget -P "{obs_data_dir}" "{url_mod}"
         downloaded_filename = download_file(url_mod, obs_data_dir)
-        
+
         with open(downloaded_filename, "r") as f:
             data = json.load(f)
         target_url = None
@@ -118,7 +118,7 @@ if __name__ == "__main__":
                 * (iris_model_fit.amplitude_0 + iris_model_fit.amplitude_1)
                 * iris_model_fit.stddev_1.quantity
                 / np.mean(si_iv_1403.axis_world_coords("wl")[0][1:] - si_iv_1403.axis_world_coords("wl")[0][:-1])
-            )       
+            )
             core_shift = ((iris_model_fit.mean_1.quantity.to(u.nm)) - si_iv_core) / si_iv_core * (constants.c.to(u.km / u.s))
             sigma = (iris_model_fit.stddev_1.quantity.to(u.nm)) / si_iv_core * (constants.c.to(u.km / u.s))
 

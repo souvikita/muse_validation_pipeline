@@ -17,10 +17,10 @@ import datetime as dt
 
 ### Below is marked for removal - replaced by make_vdem (resides in museval.utils)
 """ def make_iris_vdem(simulation, snap,
-                   save = True, 
-                   save_bz = False, z0 = -0.15, # height at which to save Bz [Mm] 
+                   save = True,
+                   save_bz = False, z0 = -0.15, # height at which to save Bz [Mm]
                    compute = True,            # -> roughly equal to formation height of 617.3 nm HMI line
-                   code = 'Bifrost', 
+                   code = 'Bifrost',
                    minltg = 4.2, maxltg = 5.5, dltg = 0.1,
                    minuz = -200, maxuz = 200, duz = 10.,
                    workdir = './',
@@ -72,7 +72,7 @@ def make_line_response(ionstr = ["si_4"],
     import astropy.units as u
     from muse.instr.utils import create_eff_area_xarray
     from muse.instr.utils import chianti_gofnt_linelist, create_resp_func
-    # Make sure the wavelength range is small to select a single line 
+    # Make sure the wavelength range is small to select a single line
     # The VDEM could be expanded to include density dependence (and the response function)
     logT = xr.DataArray(np.arange(lgtgmin,lgtgmax, lgtgstep),dims='logT')
     pressure = xr.DataArray(np.array([3e15]), dims= 'pressure')
@@ -140,7 +140,7 @@ def transform_iris_resp_units(
     if "line" not in resp.dims:
         resp = resp.swap_dims({"channel": "line"})
     if "units" not in resp.SG_resp.attrs:
-        # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr 
+        # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr
         resp.SG_resp.attrs["units"] = str(1.e-27*u.cm**5*u.ergu / (u.angstrom*u.s*u.sr))
 
     iris = iris_radiometric(iris_file)
@@ -166,7 +166,7 @@ def transform_iris_resp_units(
     )
 
     add_history(resp_dn, locals(), transform_iris_resp_units)
-    return resp_dn, iris['fovx'], iris['fovy'], iris['cdelty'], iris['cdeltw'] 
+    return resp_dn, iris['fovx'], iris['fovy'], iris['cdelty'], iris['cdeltw']
 
 def iris_radiometric(iris_file,
                      set_exptime = False):
@@ -279,7 +279,7 @@ def iris_radiometric(iris_file,
         ##############################
         #ITN26 is a little cryptic about this, but I swear this is right
         for key in indices:
-                ehdr = fits.getheader(iris_file, ext = int(indices[key])) 
+                ehdr = fits.getheader(iris_file, ext = int(indices[key]))
                 if indices[key] == 1:
                         pixl = {key: ehdr['CDELT1']}
                         pixxy = {key: ehdr['CDELT2']*np.pi/(180*3600)}
@@ -303,7 +303,7 @@ def iris_radiometric(iris_file,
 
         ###########################################################
         # Wavelength Trimming and Radiometric Calibration Factors #
-        ###########################################################    
+        ###########################################################
         lamwin={} #LAMbda WINdow
         wvlns={}
         rcfs={} #Radiometric Calibration FactorS
@@ -311,18 +311,18 @@ def iris_radiometric(iris_file,
         crval={}
 
         for key in indices:
-                ehdr = fits.getheader(iris_file, ext = int(indices[key])) 
+                ehdr = fits.getheader(iris_file, ext = int(indices[key]))
                 if key=='fdFUV':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS3'])-ehdr['CRPIX3']+1)*ehdr['CDELT3']+ehdr['CRVAL3']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
-                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
                         cdelt[key] = ehdr['CDELT3']
                         crval[key] = ehdr['CRVAL3']
                 elif key=='fdNUV':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS3'])-ehdr['CRPIX3']+1)*ehdr['CDELT3']+ehdr['CRVAL3']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
-                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
                         cdelt[key] = ehdr['CDELT3']
                         crval[key] = ehdr['CRVAL3']
@@ -330,7 +330,7 @@ def iris_radiometric(iris_file,
                 elif hdr['TDET'+str(indices[key])]=='FUV1':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV1[0])&(wvlns[key]<FUV1[-1])]
-                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV1, eFUV1/aFUV1)*const[key]
                         cdelt[key] = ehdr['CDELT1']
                         crval[key] = ehdr['CRVAL1']
@@ -338,7 +338,7 @@ def iris_radiometric(iris_file,
                 elif hdr['TDET'+str(indices[key])]=='FUV2':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>FUV2[0])&(wvlns[key]<FUV2[-1])]
-                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], FUV2, eFUV2/aFUV2)*const[key]
                         cdelt[key] = ehdr['CDELT1']
                         crval[key] = ehdr['CRVAL1']
@@ -346,7 +346,7 @@ def iris_radiometric(iris_file,
                 elif hdr['TDET'+str(indices[key])]=='NUV':
                         wvlns[key]=(np.arange(0, ehdr['NAXIS1'])-ehdr['CRPIX1']+1)*ehdr['CDELT1']+ehdr['CRVAL1']
                         lamwin[key]=np.arange(0, len(wvlns[key]))[(wvlns[key]>NUV[0])&(wvlns[key]<NUV[-1])]
-                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]            
+                        lamwin[key]=lamwin[key][0:len(lamwin[key]):len(lamwin[key])-1]
                         rcfs[key]=weno4(wvlns[key][lamwin[key][0]:lamwin[key][1]], NUV, eNUV/aNUV)*const[key]
                         cdelt[key] = ehdr['CDELT1']
                         crval[key] = ehdr['CRVAL1']
@@ -370,9 +370,9 @@ def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H
 
     Parameters
     ----------
-    wvl : `numpy.ndarray` 
+    wvl : `numpy.ndarray`
         Wavelengths at which effective area is returned (assumed given in AA).
-    date : `str` 
+    date : `str`
         Effective area date desired. Default is 'now'.
     iris_file : `str`
         Name of IRIS data file.
@@ -397,7 +397,7 @@ def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H
         else:
                 end=dt.datetime.strptime(hdr['ENDOBS'], '%Y-%m-%dT%H:%M:%S.%f')
         date=dt.datetime.strftime((begin+((end-begin)/2)), '%Y-%m-%dT%H:%M:%S.%fZ')
-        
+
     response=(igr.iris_get_response(date, quiet=False))[0]
     if response['NAME_SG'][0]==b'FUV' and response['NAME_SG'][1]==b'NUV':
         FUVind=0
@@ -408,7 +408,7 @@ def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H
     else:
         print("[NAME_SG]="+str(response['NAME_SG']))
         raise RuntimeError("FUV and NUV cannot be found automatically. Please check ['NAME_SG'] from irisresponse above.")
-    
+
     lam = response['LAMBDA']*u.nm
     lam = lam.to(u.AA).value
     if wvl[0] > 2000.:
@@ -417,7 +417,7 @@ def iris_eff_area(wvl, date=dt.datetime.strftime(dt.datetime.now(), '%Y-%m-%dT%H
         ind = FUVind
     area = response['AREA_SG'][ind]
     eff_area = weno4(wvl, lam, area)
-    
+
     return eff_area
 
 def match_vdop_logT(vdem, resp, dvdop = 10):
@@ -434,7 +434,7 @@ def match_vdop_logT(vdem, resp, dvdop = 10):
     vdem_red.coords["vdop"] = vr
     resp_interp = resp.interp(vdop=vr)
 #
-    logT_matched = resp_interp.logT.where(np.isin(np.float32(resp_interp.logT), 
+    logT_matched = resp_interp.logT.where(np.isin(np.float32(resp_interp.logT),
                                           np.float32(vdem.logT))).dropna('logT')
     vdem_interp = vdem_red.sel(logT=logT_matched,method="nearest")
     resp_interp = resp_interp.sel(logT=logT_matched, method="nearest")
@@ -474,12 +474,12 @@ def transform_iris_resp_units_old(
     if "line" not in resp.dims:
         resp = resp.swap_dims({"channel": "line"})
     if "units" not in resp.SG_resp.attrs:
-        # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr 
+        # assumes that units are in 1.e-27 cm^5 erg / angstrom s sr
         resp.SG_resp.attrs["units"] = str(1.e-27*u.cm**5*u.ergu / (u.angstrom*u.s*u.sr))
 
     iris = iris_radiometric(iris_file)
 
-    units_conv = weno4(resp.wavelength, 
+    units_conv = weno4(resp.wavelength,
                        iris['wvlns'][line][iris['lamwin'][line][0]:iris['lamwin'][line][1]],iris['rcfs'][line] )
 
     if np.size(units_conv) > 1:
@@ -494,9 +494,9 @@ def transform_iris_resp_units_old(
     resp.SG_resp.attrs["units"] = new_units
 
     add_history(resp, locals(), transform_iris_resp_units_old)
-    return resp, iris['fovx'], iris['fovy'], iris['cdelty'], iris['cdeltw'] 
+    return resp, iris['fovx'], iris['fovy'], iris['cdelty'], iris['cdeltw']
 
-def iris_validation_plot(odate, 
+def iris_validation_plot(odate,
                          iris_dir,
                          vdem_sel,
                          resp,
@@ -514,7 +514,7 @@ def iris_validation_plot(odate,
     bf_data = iris_total_line(vdem_sel, resp, line = line)
     fdate = dt.datetime.strftime(odate,'%Y-%m-%d')
 #    fdate = dt.datetime.strftime(odate,'%Y-%m-%dT%H-%M-00')
-    npz_file = glob.glob(os.path.join(iris_dir,f'*iris_fit_results*{fdate}*.npz'))[0] 
+    npz_file = glob.glob(os.path.join(iris_dir,f'*iris_fit_results*{fdate}*.npz'))[0]
     file = np.load(npz_file)
     intensity = 'gaussian'
     iris_flux = file['flux']
@@ -568,13 +568,13 @@ def iris_validation_plot(odate,
         hhigh_bf = high_bf
         data_mean = np.nanmean(data)
         code_mean = np.nanmean(bf)
-    ax[0][0].hist(data, bins=num_bins, range = (hlow,hhigh), 
+    ax[0][0].hist(data, bins=num_bins, range = (hlow,hhigh),
               label=f'IRIS {OBSID} {fdate}', cumulative=True, histtype='step',
               weights=np.ones(len_data) / len_data, color = 'blue')
     ax[0][0].axvline(x=data_mean, lw=1, ls='-', color = 'blue')
 
-    ax[0][0].hist(bf, bins=num_bins, range = (hlow_bf,hhigh_bf), 
-              label=f'{code} {Region}',cumulative=True, histtype='step', 
+    ax[0][0].hist(bf, bins=num_bins, range = (hlow_bf,hhigh_bf),
+              label=f'{code} {Region}',cumulative=True, histtype='step',
               weights=np.ones(len(bf)) / len(bf),color='tab:purple',ls='-.')
     ax[0][0].axvline(x=code_mean, color='tab:purple', lw=1, ls='-.')
     if Log:
@@ -598,12 +598,12 @@ def iris_validation_plot(odate,
     low = min(low,low_bf)
     high = max(high, high_bf)
     if Log:
-        im = ax[0][1].imshow(np.rot90(iris_flux, k = 1), 
-                             norm = colors.LogNorm(vmin = low, vmax = high), 
-                             cmap='irissji1400', 
+        im = ax[0][1].imshow(np.rot90(iris_flux, k = 1),
+                             norm = colors.LogNorm(vmin = low, vmax = high),
+                             cmap='irissji1400',
                              extent = extent)
     else:
-        im = ax[0][1].imshow(np.rot90(iris_flux, k = 1), 
+        im = ax[0][1].imshow(np.rot90(iris_flux, k = 1),
                       vmin = low, vmax = high, cmap='irissji1400',
                       extent = extent)
     ax[0][1].set_xlabel('arcsec')
@@ -621,13 +621,13 @@ def iris_validation_plot(odate,
     if unit == 'DN':
         bf_data['zeroth'] *= exptime
     if Log:
-        im = ax[0][2].imshow(bf_data['zeroth'].T, 
-                             norm = colors.LogNorm(vmin = low, vmax = high), 
-                             cmap='irissji1400', 
+        im = ax[0][2].imshow(bf_data['zeroth'].T,
+                             norm = colors.LogNorm(vmin = low, vmax = high),
+                             cmap='irissji1400',
                              extent = extent_bf)
     else:
-        im = ax[0][2].imshow(bf_data['zeroth'].T, 
-                             vmin = low, vmax = high, 
+        im = ax[0][2].imshow(bf_data['zeroth'].T,
+                             vmin = low, vmax = high,
                              cmap='irissji1400',
                              extent = extent_bf)
     ax[0][2].set_xlabel('arcsec')
@@ -653,7 +653,7 @@ def iris_validation_plot(odate,
                weights=np.ones(len_data) / len_data, color = 'blue')
     ax[1][0].axvline(x=np.nanmean(uzdata), lw=1, ls='-', color = 'blue')
 
-    ax[1][0].hist(uzbf, bins=num_bins, range = (low_bf,high_bf), label=f'{code} {Region}', histtype='step', 
+    ax[1][0].hist(uzbf, bins=num_bins, range = (low_bf,high_bf), label=f'{code} {Region}', histtype='step',
                weights=np.ones(len(uzbf)) / len(uzbf),color='tab:purple',ls='-.')
     ax[1][0].axvline(x=np.mean(uzbf), color='tab:purple', lw=1, ls='-.')
 
@@ -661,7 +661,7 @@ def iris_validation_plot(odate,
     ax[1][0].set_ylabel('ECDF')
     #ax[1][0].legend(loc='lower left')
 
-    im = ax[1][1].imshow(np.rot90(iris_vel,k = 1), 
+    im = ax[1][1].imshow(np.rot90(iris_vel,k = 1),
                       vmin = -1*ulim, vmax = ulim, cmap=cm.RdBu_r,
                       extent = extent)
     ax[1][1].set_xlabel('arcsec')
@@ -733,16 +733,16 @@ def iris_total_line(vdem_sel, resp,
         img = np.random.rand(vdem_sel.x.size, vdem_sel.y.size)
         noise = np.random.normal(DN_read/2., DN_read, img.shape)
         noise[noise < 0.] = 0.
-        zeroth = zeroth + noise 
+        zeroth = zeroth + noise
     bf = zeroth.ravel()
     first = mom['1st'].sel(line=line).squeeze().to_numpy()
     if code == 'Bifrost':
         first = -1*first # z-axis in Bifrost is "upside down"
     uzbf = first.ravel()
     second = mom['2nd'].sel(line=line).squeeze().to_numpy()
-    return {"zeroth":zeroth, "first":first, "second":second, "fovx":fovx, "fovy":fovy, "bf":bf, "uzbf":uzbf} 
+    return {"zeroth":zeroth, "first":first, "second":second, "fovx":fovx, "fovy":fovy, "bf":bf, "uzbf":uzbf}
 
-def iris_intensity_moment(iris_file, 
+def iris_intensity_moment(iris_file,
                           line = "Si IV 1403",
                           linewvl = [1402,1404],
                           contwvl = [1399,1400],
@@ -783,7 +783,7 @@ def gauss_kernel(size=3,sigma=1):
           diff_sq = (i-center)**2+(j-center)**2
           kernel[i,j]=np.exp(-diff_sq/(2*sigma**2))
     return kernel/np.sum(kernel)
-    
+
 def pixelate(arr, block_size):
     h, w = arr.shape
 

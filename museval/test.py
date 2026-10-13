@@ -101,7 +101,7 @@ def wavelength_in_cube(data_file, target_wave_str):
     """
     try:
         wininfo = eispac.read_wininfo(data_file)
-        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):
             if wvl_min <= float(target_wave_str) <= wvl_max:
                 return True
         return False
@@ -115,7 +115,7 @@ def main(argv = None):
 
     if argv is None:
         argv = sys.argv
-    
+
     try:
       opts, args = getopt.getopt(argv[1:], "hd:r:v:w:", ["help","date=","respdir=","vdemdir=","workdir="])
     except getopt.GetoptError:
@@ -125,7 +125,7 @@ def main(argv = None):
     resp_dir = os.environ['RESPONSE']
     vdem_dir = os.environ['VDEM']
     work_dir = './'
-      
+
     # option processing
     for option, value in opts:
       if option in ("-h", "--help"):

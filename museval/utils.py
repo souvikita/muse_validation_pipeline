@@ -24,8 +24,8 @@ __all__ = [
     "gauss_kernel",
 ]
 
-def find_response(obs_date, 
-                  resp_dir = None, 
+def find_response(obs_date,
+                  resp_dir = None,
                   delta_month = 12,
                   units = 'DN',
                   verbose = True):
@@ -35,8 +35,8 @@ def find_response(obs_date,
     Parameters:
     -------------------------
     obs_date: str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15
-              the obs date will be output as an astropy time object. 
-    resp_dir: string, optional, directory where response functions 
+              the obs date will be output as an astropy time object.
+    resp_dir: string, optional, directory where response functions
               are stored, default is None.
     delta_month: int, optional max number of months away from obs_date before
               new response function is suggested, default 12 months.
@@ -79,7 +79,7 @@ def find_response(obs_date,
 
 # **************************************************
 
-def get_response(vdem, date = None, 
+def get_response(vdem, date = None,
                  save_response = False,
                  units = 'DN',
                  lgtgmax=None, lgtgmin=None, lgtgstep=None,
@@ -87,15 +87,15 @@ def get_response(vdem, date = None,
                  abund =  "sun_photospheric_2021_asplund", # "sun_coronal_2021_chianti",
                  press = 3e15,
                  dx_pix=0.6, dy_pix=0.6,
-                 chrange = np.array((94, 131, 171, 193, 211, 304, 335)), #ignoring the 304 for the time being 
-                #  channels = [94, 131, 171, 193, 211, 304, 335],  
+                 chrange = np.array((94, 131, 171, 193, 211, 304, 335)), #ignoring the 304 for the time being
+                #  channels = [94, 131, 171, 193, 211, 304, 335],
                  resp_dir = None,
                  wavelength_range = [80,850],
-                 minimum_abundance = 1e-15, 
+                 minimum_abundance = 1e-15,
                  delta_month = 12,
                  n_cont_top = 150,
                  ):
-    
+
     from muse import logger
     import os
     import aiapy
@@ -113,14 +113,14 @@ def get_response(vdem, date = None,
 
     Parameters:
     -------------------------
-    date:     str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15 
+    date:     str, format YYYY-MM-DDTH:M:S, eg 2015-07-05T05:16:15
     units:    str, units of response, currently only 'DN' is available
     lgtgmax, lgtgmin, lgtgstep: float, temperature span and delta
     abund:    str, abundance file to use, default "sun_coronal_2021_chianti"
     press:    float, pressure, default 3e15
     dx_pix, dy_pix: float, size of instrument pixels in arcsec, default 0.6.
     bands:    list, integers, bands to calculate default all AIA bands
-    resp_dir: string, optional, directory where response functions 
+    resp_dir: string, optional, directory where response functions
               are stored, default is RESPONSE environment variable.
     delta_month: int, optional max number of months away from obs_date before
               new response function is suggested, default 12 months.
@@ -226,7 +226,7 @@ def get_response(vdem, date = None,
                                            abundance = abund,
                                            wavelength_range = wavelength_range,
                                            minimum_abundance = minimum_abundance,
-                                           ) 
+                                           )
         # aiapy.calibrate.util was renamed to .utils, and aiapy.calibrate/__init__.py
         # does not import that submodule, so it has to be imported explicitly rather
         # than reached by attribute access.
@@ -255,19 +255,19 @@ def get_response(vdem, date = None,
                   f' date {obs_date.strftime("%b%Y")}')
             response = ch.wavelength_response(obstime = obs_date, correction_table = correction_table)
 
-            # Convert to xarray format for MUSE Python library format.  
+            # Convert to xarray format for MUSE Python library format.
             eff_xr = create_eff_area_xarray(response.value, ch.wavelength.value, [ch.channel.value])
             area = eff_xr.eff_area.interp(wavelength=line_list.wvl).fillna(0).drop_vars("wavelength")
             line_list["resp_func"] = line_list.gofnt.sum("logT").isel(pressure=0, abundance=0) * area.isel(band=0).drop_vars("band")
-            
+
             line_list_eff = line_list.sortby(line_list.resp_func).copy(deep=True)
             # We select the 50 strongest lines within each channel
-            sort_index = np.argsort(-line_list_eff.resp_func, 
+            sort_index = np.argsort(-line_list_eff.resp_func,
                         axis=line_list.resp_func.get_axis_num('trans_index'))
             line_list_eff = line_list_eff[{"trans_index": sort_index}]
             # We may want to control this with EM instead of top lines
             line_list_eff = line_list_eff.isel(trans_index=np.arange(n_cont_top))
-            
+
             CI_resp = create_resp_func(
                     line_list_eff,
                     vdop=vdop,
@@ -276,7 +276,7 @@ def get_response(vdem, date = None,
                     wvlr=[eff_xr.wavelength.min().values,eff_xr.wavelength.max().values],
                     num_lines_keep=0,
                 )
-    
+
             CI_resp_ph = transform_resp_units(
                     CI_resp,
                     new_units="1e-27 cm5 DN / (Angstrom s)",
@@ -294,7 +294,7 @@ def get_response(vdem, date = None,
             line_wvls.append(float(np.asarray(CI_resp_comb_muse.line_wvl).ravel()[0]))
             if ii_ch == 0:
                 reponse_all_DN = CI_resp_comb_muse
-            else: 
+            else:
                 reponse_all_DN = xr.concat([reponse_all_DN, CI_resp_comb_muse], dim="channel")
         reponse_all_DN = reponse_all_DN.assign_coords(channel=("channel", chrange))
         # Restore the per-channel coordinates that read_response() builds on the cached
@@ -328,14 +328,14 @@ def get_response(vdem, date = None,
             reponse_all_DN.to_netcdf(f'{zarr_file}.nc', mode = "w")
             logger.info(f"Saved response to {f'{zarr_file}.nc'}")
     # response_all = read_response(zarr_file,
-    #                              logT=vdem.logT, 
+    #                              logT=vdem.logT,
     #                              vdop=vdop, vdopmethod="linear",
     #                              gain = np.ones((len(chrange)))*18).compute()
     return reponse_all_DN
 
 # **************************************************
 
-def make_vdem(snapname, snap, 
+def make_vdem(snapname, snap,
                   code = 'Bifrost',
                   workdir = './',
                   save = False, save_netcdf = False,
@@ -404,7 +404,7 @@ def make_vdem(snapname, snap,
                     logger.info(f"*** Reading {zarr_file}")
         else:
             logger.info(f"*** Reading {zarr_file}")
-    if compute:      
+    if compute:
         pc.DEFAULTS.ARRAY_MBYTES_MAX = 2.7e+5
         if code == 'Bifrost':
             ec = pc.BifrostCalculator(f'{snapname}_{snap:03d}.idl')
@@ -463,11 +463,11 @@ def make_vdem(snapname, snap,
             vdem = _vdem_to_dataset(vdem, ec)
         else:
           vdem = ec.vdem_pipeline(los_dim='z',
-                                iz0 = iz0, 
-                                tg_percent = 0.1, 
+                                iz0 = iz0,
+                                tg_percent = 0.1,
                                 dlogT = logT[2],
-                                mintg_cut = logT[0], 
-                                maxtg_cut = logT[1], 
+                                mintg_cut = logT[0],
+                                maxtg_cut = logT[1],
                                 tg_bins = 60,
                                 ulos_bin = 60,
                                 vel_percent = 0.1,
@@ -498,7 +498,7 @@ def make_vdem(snapname, snap,
     if save_netcdf:
             vdem.to_netcdf(f'{zarr_file}.nc', mode = "w")
             logger.info(f"Saved vdem to {f'{zarr_file}.nc'}")
-    if save_bz: 
+    if save_bz:
         if code == 'Bifrost':
             dd = br.BifrostData(snapname,snap)
             dd.set_snap(snap)
@@ -506,7 +506,7 @@ def make_vdem(snapname, snap,
             bz = dd.get_var('bz')
             bz0 = bz[:,:,iz0]*dd.params['u_b'][0]
             bz_file = os.path.join(vdem_dir,f'Bz_z={-1.0*z0:0.2f}_{snap:03d}.npy')
-        else: # MURaM 
+        else: # MURaM
             bz_file = os.path.join(vdem_dir,f'Bz_i0z={iz0:03d}_{snap:03d}.npy')
         np.save(bz_file, bz0, allow_pickle = True)
         logger.info(f"Saved {bz_file}")
@@ -538,7 +538,7 @@ def get_vdem_bz(bzdir, strsnap):
 
 # **************************************************
 
-def aia_synthesis(aia_resp, work_dir, vdem_path, 
+def aia_synthesis(aia_resp, work_dir, vdem_path,
                   snap = None, swap_dims = True):
     import xarray as xr
     from muse.synthesis.synthesis import vdem_synthesis
@@ -546,7 +546,7 @@ def aia_synthesis(aia_resp, work_dir, vdem_path,
     import glob
     logger.info(f"*** Work directory is {work_dir}")
     os.chdir(work_dir)
-    
+
     if snap is None:
         files = vdem_path #glob.glob(os.path.join(vdem_dir,'*'))
     else:
@@ -601,7 +601,7 @@ def readFits(filename, ext=0):
   #print('reading -> {0}'.format(filename))
   dat = np.ascontiguousarray(io[ext].data, dtype='float32')
   io.close()
-  
+
   return dat
 
 # **************************************************
@@ -675,7 +675,7 @@ def wavelength_in_cube(data_file, target_wave_str):
     """
     try:
         wininfo = eispac.read_wininfo(data_file)
-        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):
             if wvl_min <= float(target_wave_str) <= wvl_max:
                 return True
         return False
@@ -726,7 +726,7 @@ def save_hmi_c_outs(magnetogram_path, output_dir, eis_data_list):
             logger.info(f"Saved HMI cutout to {output_file}")
         except Exception as e:
             logger.error(f"Error processing EIS data: {e}")
-            
+
 # **************************************************
 
 def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
@@ -787,7 +787,7 @@ def pick_sim(sim, work='/mn/stornext/d19/RoCS/viggoh/3d/',help = False):
        return None, None
    Simulations_Table.add_index('mnemonic')
    workdir = os.path.join(work,Simulations_Table.loc[sim]['simdir'])
-   os.chdir(workdir)        
+   os.chdir(workdir)
    logger.info(f"*** Now in directory {workdir}, snapname is {Simulations_Table.loc[sim]['snapname']}")
    return Simulations_Table.loc[sim]['snapname'],workdir
 
@@ -799,14 +799,14 @@ def plot_aia_overview(muse_AIA, bz0, channels = [171, 193, 131, 211],
     fig,ax = plt.subplots(2,3, figsize = (24,12))
     arcsec2Mm = 0.729
     extent = np.array([min(muse_AIA.x),max(muse_AIA.x),min(muse_AIA.y),max(muse_AIA.y)])/1.e8
-    if len_scale == 'arcsec':  
+    if len_scale == 'arcsec':
         extent = np.array(extent_bf)/arcsec2Mm
-    for i,channel in enumerate(channels): 
-        if channel < 100: cmap = f'sdoaia{channel:02d}' 
+    for i,channel in enumerate(channels):
+        if channel < 100: cmap = f'sdoaia{channel:02d}'
         else: cmap = f'sdoaia{channel:03d}'
         flux = np.squeeze(muse_AIA.flux.sel(channel = channel).to_numpy())
-        im = ax[i//2][i%2].imshow(flux.T, 
-                                  norm = colors.PowerNorm(0.3), 
+        im = ax[i//2][i%2].imshow(flux.T,
+                                  norm = colors.PowerNorm(0.3),
                                   cmap = cmap, extent = extent)
         ax[i//2][i%2].set_aspect('equal')
         ax[i//2][i%2].set_xlabel(f'X [{len_scale}]', fontsize = fontsize)
@@ -858,7 +858,7 @@ def iny_smear(iny, wvl, dx = 0.1, resolution = 0.33):
     sptbin = resolution*0.729/dx/fwhm
     gauss_kern = gauss_kernel(size=int(10*sptbin), sigma=sptbin)
     for iwvl in range(np.shape(wvl)[0]):
-        iny[:,:,iwvl] = signal.convolve2d(iny[:,:,iwvl], 
+        iny[:,:,iwvl] = signal.convolve2d(iny[:,:,iwvl],
                                           gauss_kern,
                                           mode='same',
                                           boundary='wrap')
@@ -874,4 +874,3 @@ def gauss_kernel(size=3,sigma=1):
           diff_sq = (i-center)**2+(j-center)**2
           kernel[i,j]=np.exp(-diff_sq/(2*sigma**2))
     return kernel/np.sum(kernel)
-

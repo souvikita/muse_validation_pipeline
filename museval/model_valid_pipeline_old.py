@@ -73,7 +73,7 @@ def wavelength_in_cube(data_file, target_wave_str):
     """
     try:
         wininfo = eispac.read_wininfo(data_file)
-        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):    
+        for wvl_min, wvl_max in (zip(wininfo.wvl_min, wininfo.wvl_max)):
             if wvl_min <= float(target_wave_str) <= wvl_max:
                 return True
         return False
@@ -105,23 +105,23 @@ if __name__ == '__main__':
     month_number = date_obj.datetime.month  # Extract the month number (e.g., 5 for May)
     month_name = calendar.month_name[month_number]  # Convert to full month name
 
-    # Check if the response function for that year exists in your system. 
+    # Check if the response function for that year exists in your system.
     # We agreed to use the same response function for all observations in a given year.
     response_pattern = os.path.join(os.environ['RESPONSE'], f'swapped_aia_resp_DN_*{last_two_digits}.zarr') # Just checks for the response function for the year
     matching_files = glob.glob(response_pattern)# checks if any file in the above directory matches the pattern
-    # If the response function for that year exists, it will be used.   
+    # If the response function for that year exists, it will be used.
     # If not, it will create a new response function for that year.
     if matching_files:
         print(f"Response function(s) found for the year: {last_two_digits}")
-        response_file = matching_files[0] # because the glob returns a list while the read_response function takes a string. 
+        response_file = matching_files[0] # because the glob returns a list while the read_response function takes a string.
         response_all = read_response(response_file, logT=vdem.logT,gain=np.ones((4))).compute() # simply read the response functions
     else:
         print(f"Creating a new AIA response function for the year: {last_two_digits}")
         save_response = True
         use_QS_bands = True
         print(f"Response function date set to {parse_time(date).strftime('%d-%b-%Y')}")
-        aia_goes_lines = ['AIA 94', 'AIA 131', 'AIA 171', 'AIA 193', 
-                        'AIA 211', 'AIA 304','AIA 335', 
+        aia_goes_lines = ['AIA 94', 'AIA 131', 'AIA 171', 'AIA 193',
+                        'AIA 211', 'AIA 304','AIA 335',
                         'GOES 15 1-8', 'GOES 15 0.5-4']
         # Channels (lines/bands) relevant for (in this case) MUSE QS validation
         if use_QS_bands:
@@ -130,7 +130,7 @@ if __name__ == '__main__':
         else:
             print(" You should set use_QS_bands to true unless you know what you are doing!!!")
             # sys.exit()
-        
+
             #  Temperature limits, abundance, pressure, and pixel size
         #  NB note that available abundance files depend on Chianti version!
         units = 'DN'
@@ -152,12 +152,12 @@ if __name__ == '__main__':
             eff_xr = create_eff_area_xarray(resp_band.value, ch.wavelength.value, [ch.channel.value])
             line_list = create_resp_line_list(eff_xr, temin=10**tmin, abundance=abund, eDensity=3e10, num_slits=1)
             line_list = line_list.sortby(line_list.resp_func)
-            line_list = line_list.sel(trans_index = line_list.trans_index[::-1][:350].data)  
+            line_list = line_list.sel(trans_index = line_list.trans_index[::-1][:350].data)
             ''' Important!! Viggo considers here only 350 lines.
-                this creates the resposne function. Note that now we provide pressure 
-                (it can also be an array) or not sum lines, but 
+                this creates the resposne function. Note that now we provide pressure
+                (it can also be an array) or not sum lines, but
                 if you have many it becomes a huge array!
-            ''' 
+            '''
             resp_eff_dn = create_resp_func_ci(
                 line_list,
                 temp=10 ** np.arange(tmin, tmax, tbin),
@@ -167,7 +167,7 @@ if __name__ == '__main__':
                 sum_lines=True,
                 gain=18,
                 units="1e-27 DN cm5 / s",
-                dx_pix = dx_pix, 
+                dx_pix = dx_pix,
                 dy_pix = dy_pix,
                 )
             if line == lines[0]:
@@ -214,7 +214,7 @@ if __name__ == '__main__':
         ax[0].legend(loc = 'upper right')
         ax[0].set_xscale('log')
         ax[0].set_ylabel('Fraction')
-        
+
         ax[1].hist(synth_aiadata.ravel(), bins= bins,histtype='step', cumulative=True, label=line,
             weights=np.ones(len(synth_aiadata.ravel())) / len(synth_aiadata.ravel()))
         ax[1].set_xlabel(r'Intensity [DNs$^{-1}$]')
@@ -222,7 +222,7 @@ if __name__ == '__main__':
         ax[1].set_ylabel('ECDF')
         ax[1].set_xlim([1,15000])
         ax[1].axvline(x=np.mean(synth_aiadata.ravel()),color=colors[idx_line],lw=1,ls='--')
-        
+
     fig.suptitle(f'{code} simulation: {snapname} snap {snap:03d}',y=0.98)
     plt.tight_layout()
     # plt.show()
@@ -242,7 +242,7 @@ if __name__ == '__main__':
     Region = 'Plage'
     #### -------- Date to be modified by the users ------####
     data_basedir = os.path.join(os.environ['HOME'], 'MUSE_outputs', 'EIS_IRIS_QS_obs', 'Plage_datasets')
-    obs_dates = ascii.read(data_basedir+'/plage_obs.txt') 
+    obs_dates = ascii.read(data_basedir+'/plage_obs.txt')
     obs_dates.add_index("date_begin_EIS")
     for date in obs_dates["date_begin_EIS"]:
         aialine = ['AIA 131','AIA 171','AIA 193','AIA 211']
@@ -329,11 +329,11 @@ if __name__ == '__main__':
                 ax[i//2][i%2].hist(data, bins=bins_new, label=f'AIA {Region}',cumulative=True, histtype='step',
                     weights=np.ones(len(data)) / len(data),color=colors[i],lw=2)
                 ax[i//2][i%2].axvline(x=np.mean(data),color=colors[i],lw=1,ls='-',label=f'$\mu_{{\mathrm{{obs}}}}$: {np.mean(data):.2f} [DNs$^{-1}$]')
-                # 
-                
+                #
+
                 # bins = np.linspace(bf.min(), bf.max(), num_bins)
                 # hist, bin_edges = np.histogram(bf.ravel(), bins=bins)
-                ax[i//2][i%2].hist(bf.ravel(), bins=bins_new, label=f'{code} {Region}',cumulative=True, histtype='step', 
+                ax[i//2][i%2].hist(bf.ravel(), bins=bins_new, label=f'{code} {Region}',cumulative=True, histtype='step',
                         weights=np.ones(len(bf.ravel())) / len(bf.ravel()),color='tab:purple',ls='-.',lw=2.)
                 ax[i//2][i%2].axvline(x=np.mean(bf.ravel()),color='tab:purple',lw=1,ls='-.',label=f'$\mu_{{\mathrm{{syn}}}}$: {np.mean(bf.ravel()):.2f} [DNs$^{-1}$]')
                 ax[i//2][i%2].set_xlabel(fr'{line} Intensity [DNs$^{-1}$]')
@@ -359,7 +359,7 @@ if __name__ == '__main__':
             # save_hist = input("Do you want to save the histograms? (True/False): ")
             # Change the working directory to the cutouts data path and ensure directory exists
             os.chdir(cutouts_data_path)
-            output_dir = './pipeline_figs'  
+            output_dir = './pipeline_figs'
             os.makedirs(output_dir, exist_ok=True)  # Create the directory if it doesn't exist
             # if save_hist == 'True':
             print('Saving the histograms')
@@ -377,7 +377,7 @@ if __name__ == '__main__':
             downloaded_head_h5 = glob.glob(cutouts_data_path+'/*.head.h5')
             data = eispac.read_cube(downloaded_data_h5[0])
             headers = eispac.read_cube(downloaded_head_h5[0])
-            
+
             eis_lines = [195.120,256.320, 284.160] # Fe XII and Fe XV
             target_template_name = ['fe_12_195_119.2c.template.h5', 'he_02_256_317.2c.template.h5','fe_15_284_160.2c.template.h5']
             eis_cmap = ['sdoaia193','sdoaia304','sohoeit284']
@@ -409,8 +409,8 @@ if __name__ == '__main__':
 
                     panel_width = 4  # inches per panel (adjust as needed)
                     fig_width = panel_width * 2  # two panels side by side
-                    fig_height = fig_width * aspect/8.  # maintain aspect             
-                    fig = plt.figure(figsize=(fig_width, fig_height)) 
+                    fig_height = fig_width * aspect/8.  # maintain aspect
+                    fig = plt.figure(figsize=(fig_width, fig_height))
                     if target_template == 'fe_12_195_119.2c.template.h5':
                         ax1 = fig.add_subplot(121,projection=inten_map)
                         im=inten_map.plot(axes=ax1, cmap = eis_cmap[0])
@@ -485,7 +485,7 @@ if __name__ == '__main__':
                     axs_twin.tick_params(axis='y', labelcolor=color)
                 else:
                     print(f"Skipping wavelength {eis_spect} Å: Not found in {downloaded_data_h5[0]}")
-                
+
             # Adjust layout and show the plot
             plt.tight_layout()
             # plt.show()
@@ -514,7 +514,7 @@ if __name__ == '__main__':
                 ## Load an AIA map to get the WCS
                 aia_map_fdisk = sunpy.map.Map(cutouts_data_path+'/*.193.image_lev1.fits')
                 out_hmi = hmi_map.reproject_to(aia_map_fdisk.wcs) ## actual reprojection from HMI to AIA based on WCS headers
-                cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout 
+                cutout_hmi_aligned = out_hmi.submap(bottom_left,top_right=top_right) ## this is the cutout
 
                 ## Now dynamically calculate figure size based on the number of subplots and aspect ratio
                 ny, nx = cutout_hmi_aligned.data.shape
@@ -548,7 +548,7 @@ if __name__ == '__main__':
 
 
                 ax = fig.add_subplot(2, 2, 2, projection=cutout_hmi_aligned.wcs)
-                abs_data = np.abs(cutout_hmi_aligned.data) 
+                abs_data = np.abs(cutout_hmi_aligned.data)
                 abs_map = sunpy.map.Map(abs_data, cutout_hmi_aligned.meta)
                 im = abs_map.plot(axes=ax, clip_interval=(1, 99.99)*u.percent,cmap='YlGnBu')
                 ax.grid(False)
@@ -576,7 +576,7 @@ if __name__ == '__main__':
                 ax.set_ylabel('Fraction')
                 ax.set_xlabel(r'B$_{\mathrm{LOS}}$[G]')
                 ax.axvline(x=0,ls='-',color='black')
-                
+
                 bins = np.linspace(abs_data.min(),abs_data.max(),100)
                 # data_hmi = cutout_hmi_aligned.data
                 ax = fig.add_subplot(2, 2, 4)
@@ -592,15 +592,15 @@ if __name__ == '__main__':
                 os.chdir(cutouts_data_path)
                 output_dir = './pipeline_figs'
                 os.makedirs(output_dir, exist_ok=True)
-                # Create the directory if it doesn't exist 
+                # Create the directory if it doesn't exist
                 # if save_hmi == 'True':
                 print('Saving the HMI maps')
-                fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight')             
+                fig.savefig(os.path.join(output_dir,f"{date}_HMI.png"),dpi=300,bbox_inches='tight')
                 plt.close(fig)
                 # else:
                 #     print('HMI maps not saved')
                 #     plt.close(fig)
-                # plt.show()    
+                # plt.show()
 
             ## Plot a fukll disk AIA map and draw the cutout region
             exp_time_fdisk = aia_map_fdisk.exposure_time
@@ -627,7 +627,7 @@ if __name__ == '__main__':
             # Create the directory if it doesn't exist
             # if save_aia_fdsik == 'True':
             print('Saving the full disk AIA maps')
-            fig.savefig(os.path.join(output_dir,f"{date}_AIA_fdisk.png"),dpi=300,bbox_inches='tight')             
+            fig.savefig(os.path.join(output_dir,f"{date}_AIA_fdisk.png"),dpi=300,bbox_inches='tight')
             plt.close(fig)
         # else:
             # print('AIA full disk maps not saved')

@@ -24,14 +24,14 @@ from irispy.spectrograph import SpectrogramCube
 def download_hek_json(url_mod, obs_data_dir):
     """
     Downloads HEK JSON file from the given URL.
-    
+
     Parameters:
     -----------
     url_mod : str
         URL to download the HEK JSON file from
     obs_data_dir : str
         Directory where the JSON file will be saved
-        
+
     Returns:
     --------
     str
@@ -54,14 +54,14 @@ def download_hek_json(url_mod, obs_data_dir):
 def find_iris_raster_url(data, min_exptime=4):
     """
     Parses HEK JSON data to find IRIS raster URL.
-    
+
     Parameters:
     -----------
     data : dict
         JSON data loaded from HEK response
     min_exptime : float, optional
         Minimum exposure time in seconds (default: 4)
-        
+
     Returns:
     --------
     str or None
@@ -91,14 +91,14 @@ def find_iris_raster_url(data, min_exptime=4):
 def download_iris_raster(target_url, obs_data_dir):
     """
     Downloads IRIS raster file using pooch.
-    
+
     Parameters:
     -----------
     target_url : str
         URL to the raster file
     obs_data_dir : str
         Directory where the raster file will be saved
-        
+
     Returns:
     --------
     str
@@ -263,12 +263,12 @@ if __name__ == "__main__":
     # QS datasets directory structure
     qs_data_path = '/Users/souvikb/MUSE_outputs/EIS_IRIS_QS_obs/QS_datasets/IRIS_only/'
     iris_data_file = os.path.join(qs_data_path, 'iris_data.txt')
-    
+
     # Read iris_data.txt with comment handling
     # astropy.io.ascii should auto-detect the format (space-separated with " - " separator)
     obs_dates = ascii.read(iris_data_file, comment='#')
     obs_dates.add_index("date_begin_IRIS")
-    
+
     for date in obs_dates["date_begin_IRIS"]:
         url_base = 'https://www.lmsal.com/hek/hcr?cmd=search-events3&outputformat=json&startTime=2020-11-19T17:00&stopTime=2020-11-20T17:00&hasData=true&hideMostLimbScans=true&limit=200'#'https://www.lmsal.com/hek/hcr?cmd=search-events-corr&outputformat=json&startTime=2025-07-08T00:00&stopTime=2025-07-09T00:00&instrument=IRIS&hasData=true&hideMostLimbScans=true&optionalcorr=SOT&optionalcorr=SOTSP&optionalcorr=XRT&requiredcorr=EIS'
         date_begin_IRIS = obs_dates.loc[date]["date_begin_IRIS"]
@@ -277,23 +277,23 @@ if __name__ == "__main__":
         print(f"\n*** Checking IRIS rasters in the interval {date_begin_IRIS} - {date_end_IRIS}")
         obs_data_dir = os.path.join(qs_data_path, "IRIS_datasets", date_begin_IRIS)
         os.makedirs(obs_data_dir, exist_ok=True)
-        
+
         # Download HEK JSON file
         downloaded_filename = download_hek_json(url_mod, obs_data_dir)
-        
+
         # Parse JSON and find raster URL
         with open(downloaded_filename, "r") as f:
             data = json.load(f)
-        
+
         target_url = find_iris_raster_url(data, min_exptime=4)
-        
+
         if target_url is None:
             print(f"*** No suitable IRIS raster found for {date_begin_IRIS}. Skipping.")
             continue
-        
+
         # Download raster file
         raster_filename = download_iris_raster(target_url, obs_data_dir)
-        
+
         # Read raster and perform fitting
         raster = read_files(raster_filename, memmap=False)
         iris_model_fit, si_iv_spec = fit_si_iv(raster, client)
@@ -303,4 +303,3 @@ if __name__ == "__main__":
 
         # Save fit results
         save_fit_results(iris_model_fit, si_iv_spec, date_begin_IRIS, obs_data_dir)
-
