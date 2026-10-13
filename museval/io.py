@@ -36,7 +36,6 @@ def files_to_retry(results, download_dir, min_bytes=1024):
     Using for EIS and AIA data download from Fido.
     """
     import os
-    from sunpy.util import is_complete
     retry = []
     for table in results:
         for row in table:
@@ -65,4 +64,12 @@ def iris_download_file(url_mod, obs_data_dir):
             f.write(chunk)
 
     return filepath
+######################################################
+
+def is_complete(filepath, min_bytes=1024):
+    """
+    Return True if `filepath` exists and is at least `min_bytes` long.
+    """
+    return os.path.exists(filepath) and os.path.getsize(filepath) >= min_bytes
+
 ######################################################
