@@ -65,7 +65,7 @@ def interpol_eis_ea(date, wavelength, short=False, long=False, radcal=False, ea_
     # Validate input values
     if np.size(date) != 1:
         raise ValueError('ERROR: please input a single date')
-    
+
     in_tai = anytim2tai(date)
 
     if in_tai < anytim2tai('2006-10-20T10:20:00.000'):
@@ -117,7 +117,7 @@ def interpol_eis_ea(date, wavelength, short=False, long=False, radcal=False, ea_
     for w in range(n_ref_waves):
         ea_values = ref_ea[w,:]
         new_ea[w] = np.interp(in_tai, ref_tai, ea_values)
-        
+
     if not short and not long:
         out_ea = interp1d(ref_wave, new_ea, kind='cubic')(wavelength)
     else:

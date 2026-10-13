@@ -11,7 +11,7 @@ Goal: provide consistent, lightweight validation steps so numerical models can b
 Internal coordination: linked to the `muse_science` Slack workspace (private channel: `#museval`).
 
 ## Installation
-_Better to install under a virtual conda/mamba environment_ e.g.: 
+_Better to install under a virtual conda/mamba environment_ e.g.:
 `conda create -n your_env_name`
 
 Clone and install in editable mode:
@@ -25,7 +25,7 @@ pip install -e .
 ## Quick Concept
 
 1. Retrieve / point to a simulation in the form of a Velocity DEM (e.g. Bifrost, MHD model, etc.).
-2. Synthesize observables by taking into account the different instrumental response functions. 
+2. Synthesize observables by taking into account the different instrumental response functions.
 3. Select corresponding observation sets (AIA / HMI / EIS / IRIS). There are functions to output observations in the form of .txt files.
 4. Run comparison / diagnostic routines (intensity synthesis, line ratios, basic statistics, etc.).
 5. Produce a small summary plots.
